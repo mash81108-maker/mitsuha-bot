@@ -3,25 +3,18 @@ from threading import Thread
 from flask import Flask
 import telebot
 
-# Render ko active rakhne ke liye dummy server
+# Render ko active rakhne ke liye Flask app
 app = Flask('')
 
 @app.route('/')
 def home():
     return "⛩️ Mitsuha Bot is Live!"
 
-def run():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# Tumhara Telegram Bot Code (Token ke saath)
+# Tumhara Telegram Bot Code (Preserved Token)
 TOKEN = '8717295226:AAFAAyfKGvGjqEJQVnpko7g-C3AbQv95Yy8'
 bot = telebot.TeleBot(TOKEN)
 
+# Texts for Commands
 RULES_TEXT = """
 ˚₊‧꒰ა ⛩️ 🎀 𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖱𝗎𝗅𝖾𝗌 🌸 ໒꒱ ‧₊˚
 
@@ -30,17 +23,36 @@ RULES_TEXT = """
 3. Keep the vibe cute, aesthetic, aur active! 🍥🧸
 """
 
+NOTICES_TEXT = """
+📢 *𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻  𝖭𝗈𝗍𝗂𝖼𝖾𝗌* 🌸
+
+Abhi tak koi naya notice nahi hai! Stay tuned for exciting updates! ✨
+"""
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    welcome_text = "🍥 *Konichiwa! Main hoon Mitsuha.* ⛩️\n\nMain *Kawaii Club* ki official manager desk hoon. Club ke updates aur rules dekhne ke liye niche diye gaye commands use karein! 🎀✨"
+    welcome_text = (
+        "🍥 *Konichiwa! Main hoon Mitsuha.* ⛩️\n\n"
+        "Main *Kawaii Club* ki official manager desk hoon. "
+        "Club ke updates aur rules dekhne ke liye niche diye gaye commands use karein! 🎀✨\n\n"
+        "📜 /rules - Group ke rules dekhne ke liye\n"
+        "📢 /notices - Important notices dekhne ke liye"
+    )
     bot.reply_to(message, welcome_text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['rules'])
 def send_rules(message):
     bot.reply_to(message, RULES_TEXT, parse_mode='Markdown')
 
-if __name__ == "__main__":
-    keep_alive()
-    print("⛩️ Mitsuha Bot cloud par ready hai...")
+@bot.message_handler(commands=['notices'])
+def send_notices(message):
+    bot.reply_to(message, NOTICES_TEXT, parse_mode='Markdown')
+
+# Gunicorn ke liye Background Thread me Bot ko Start Karna
+def start_bot():
+    print("⛩️ Mitsuha Bot polling started...")
     bot.infinity_polling()
-  
+
+bot_thread = Thread(target=start_bot)
+bot_thread.daemon = True
+bot_thread.start()
