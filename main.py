@@ -10,8 +10,8 @@ app = Flask('')
 def home():
     return "⛩️ Mitsuha Bot is Live!"
 
-# Tumhara Token aur IDs fixed
-TOKEN = '8717295226:AAFAAyfKGvGjqEJQVnpko7g-C3AbQv95Yy8'
+# 🔒 Token ab Safe hai (Render Environment Variable se aayega)
+TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
 # Fixed Admin aur Group IDs
@@ -23,7 +23,7 @@ user_hearts = {}
 
 # Texts for Commands (HTML Formatting)
 RULES_TEXT = """
-˚₊‧꒰ა ⛩️ 🎀 𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/-𝗎𝖻 𝖱𝗎𝗅𝖾𝗌 🌸 ໒꒱ ‧₊˚
+˚₊‧꒰ა ⛩️ 🎀 𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/-𝗎𝖻 𝖱𝗎└𝖾𝗌 🌸 ໒꒱ ‧₊˚
 
 1. Everyone ke saath respectful aur friendly raho! 💕
 2. Chat me spamming, link sharing, ya toxicity strictly banned hai. 🚫
