@@ -27,12 +27,6 @@ RULES_TEXT = """
 3. Keep the vibe cute, aesthetic, aur active! 🍥🧸
 """
 
-NOTICES_TEXT = """
-📢 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻  𝖭𝗈𝗍𝗂𝖼𝖾𝗌</b> 🌸
-
-Abhi tak koi naya notice nahi hai! Stay tuned for exciting updates! ✨
-"""
-
 GROUPS_TEXT = """
 🔗 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 More Groups</b> 🌸
 
@@ -48,7 +42,6 @@ def send_welcome(message):
         "Main <b>Kawaii Club</b> ki official manager desk hoon. "
         "Club ke updates aur rules dekhne ke liye niche diye gaye commands use karein! 🎀✨\n\n"
         "📜 /rules - Group ke rules dekhne ke liye\n"
-        "📢 /notices - Important notices dekhne ke liye\n"
         "🔗 /groups - Humare baaki groups ke links dekhne ke liye"
     )
     bot.reply_to(message, welcome_text, parse_mode='HTML')
@@ -57,16 +50,12 @@ def send_welcome(message):
 def send_rules(message):
     bot.reply_to(message, RULES_TEXT, parse_mode='HTML')
 
-@bot.message_handler(commands=['notices'])
-def send_notices(message):
-    bot.reply_to(message, NOTICES_TEXT, parse_mode='HTML')
-
 @bot.message_handler(commands=['groups'])
 def send_groups(message):
     bot.reply_to(message, GROUPS_TEXT, parse_mode='HTML')
 
 # --- 🚀 MAIN MAGIC: DM TO GROUP FORWARDER ---
-@bot.message_handler(func=lambda message: message.chat.type == 'private')
+@bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
 def forward_dm_to_group(message):
     # Sirf TUMHARI baat sunega
     if message.from_user.id == YOUR_USER_ID:
@@ -87,5 +76,5 @@ bot_thread = Thread(target=start_bot)
 bot_thread.daemon = True
 bot_thread.start()
 
-# Flask Web Server ko start karne ke liye (UptimeRobot ke liye zaroori line)
+# Flask Web Server ko start karne ke liye
 app.run(host='0.0.0.0', port=10000)
