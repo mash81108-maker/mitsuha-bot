@@ -18,9 +18,6 @@ bot = telebot.TeleBot(TOKEN)
 YOUR_USER_ID = 8787638791
 GROUP_CHAT_ID = -1003983125875
 
-# Members ke Telegram Nicknames auto-save karne ke liye dictionary (Tagall ke liye)
-active_members = {}
-
 # Texts for Commands (HTML Formatting)
 RULES_TEXT = """
 ˚₊‧꒰ა ⛩️ 🎀 𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖱𝗎𝗅𝖾𝗌 🌸 ໒꒱ ‧₊˚
@@ -36,6 +33,14 @@ NOTICES_TEXT = """
 Abhi tak koi naya notice nahi hai! Stay tuned for exciting updates! ✨
 """
 
+GROUPS_TEXT = """
+🔗 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 More Groups</b> 🌸
+
+Humare baaki groups aur community ko join karne ke liye neeche diye gaye link par click karein:
+
+🤝 <b>Team Tamashi:</b> https://t.me/team_tamashi
+"""
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     welcome_text = (
@@ -44,7 +49,7 @@ def send_welcome(message):
         "Club ke updates aur rules dekhne ke liye niche diye gaye commands use karein! 🎀✨\n\n"
         "📜 /rules - Group ke rules dekhne ke liye\n"
         "📢 /notices - Important notices dekhne ke liye\n"
-        "📢 /tagall - Sabhi active members ko tag karne ke liye"
+        "🔗 /groups - Humare baaki groups ke links dekhne ke liye"
     )
     bot.reply_to(message, welcome_text, parse_mode='HTML')
 
@@ -56,27 +61,9 @@ def send_rules(message):
 def send_notices(message):
     bot.reply_to(message, NOTICES_TEXT, parse_mode='HTML')
 
-# --- AUTOMATIC NICKNAME TAGALL ---
-@bot.message_handler(commands=['tagall'])
-def tag_all_members(message):
-    if message.chat.type == 'private':
-        bot.reply_to(message, "❌ Bhai, ye command sirf group me kaam karega!")
-        return
-
-    text_parts = message.text.split(' ', 1)
-    custom_msg = text_parts[1] if len(text_parts) > 1 else "Sab log online aao! ✨"
-
-    if active_members:
-        mentions_list = []
-        for user_id, nickname in active_members.items():
-            clean_name = nickname.replace('<', '&lt;').replace('>', '&gt;')
-            mentions_list.append(f'<a href="tg://user?id={user_id}">{clean_name}</a>')
-        
-        all_mentions = ", ".join(mentions_list)
-        announcement = f"📢 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Announcement!</b> 🌸\n\n💬 {custom_msg}\n\n🔔 {all_mentions}"
-        bot.send_message(message.chat.id, announcement, parse_mode='HTML')
-    else:
-        bot.reply_to(message, "❌ Abhi tak kisi ne group me chat nahi ki hai!")
+@bot.message_handler(commands=['groups'])
+def send_groups(message):
+    bot.reply_to(message, GROUPS_TEXT, parse_mode='HTML')
 
 # --- 🚀 MAIN MAGIC: DM TO GROUP FORWARDER ---
 @bot.message_handler(func=lambda message: message.chat.type == 'private')
@@ -92,14 +79,6 @@ def forward_dm_to_group(message):
     else:
         bot.reply_to(message, "❌ Aap is bot ke admin nahi ho.")
 
-# --- AUTO NICKNAME CAPTURER FOR TAGALL ---
-@bot.message_handler(func=lambda message: True, content_types=['text', 'photo', 'sticker', 'animation', 'video'])
-def capture_active_users(message):
-    if message.chat.type in ['group', 'supergroup']:
-        user_id = message.from_user.id
-        nickname = message.from_user.first_name
-        active_members[user_id] = nickname
-
 # Background thread me chalane ke liye
 def start_bot():
     bot.infinity_polling()
@@ -107,3 +86,6 @@ def start_bot():
 bot_thread = Thread(target=start_bot)
 bot_thread.daemon = True
 bot_thread.start()
+
+# Flask Web Server ko start karne ke liye (UptimeRobot ke liye zaroori line)
+app.run(host='0.0.0.0', port=10000)
