@@ -10,7 +10,7 @@ app = Flask('')
 def home():
     return "⛩️ Mitsuha Bot is Live!"
 
-# 🔒 Token ab Safe hai (Render Environment Variable se aayega)
+# 🔒 Token Safe hai (Render Environment Variable se aayega)
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
@@ -23,7 +23,7 @@ user_hearts = {}
 
 # Texts for Commands (HTML Formatting)
 RULES_TEXT = """
-˚₊‧꒰ა ⛩️ 🎀 𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/-𝗎𝖻 𝖱𝗎└𝖾𝗌 🌸 ໒꒱ ‧₊˚
+˚₊‧꒰ა ⛩️ 🎀 𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/-𝗎𝖻 𝖱𝗎𝗅𝖾𝗌 🌸 ໒꒱ ‧₊˚
 
 1. Everyone ke saath respectful aur friendly raho! 💕
 2. Chat me spamming, link sharing, ya toxicity strictly banned hai. 🚫
@@ -31,7 +31,7 @@ RULES_TEXT = """
 """
 
 GROUPS_TEXT = """
-🔗 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/𝗎𝖻 More Groups</b> 🌸
+🔗 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/🇺𝖻 More Groups</b> 🌸
 
 Humare baaki groups aur community ko join karne ke liye neeche diye gaye link par click karein:
 
@@ -59,11 +59,14 @@ def send_rules(message):
 def send_groups(message):
     bot.reply_to(message, GROUPS_TEXT, parse_mode='HTML')
 
-# --- 🎯 HEARTS COMMANDS (User points check kar sakte hain) ---
+# --- 🎯 HEARTS COMMANDS (Sari Parsing Fixes Applied) ---
 @bot.message_handler(commands=['hearts'])
 def show_hearts(message):
     user_id = message.from_user.id
-    name = message.from_user.first_name
+    raw_name = message.from_user.first_name or "Kawaii Member"
+    
+    # Name clean-up taaki kisi ke stylish/special symbols se command crash na ho
+    name = raw_name.replace('<', '&lt;').replace('>', '&gt;')
     
     if user_id in user_hearts:
         current_pts = user_hearts[user_id]["hearts"]
@@ -80,7 +83,7 @@ def show_leaderboard(message):
     # Highest Hearts ke hisab se top 5 logo ko sort karna
     sorted_users = sorted(user_hearts.items(), key=lambda item: item[1]["hearts"], reverse=True)[:5]
     
-    lb_text = "🏆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/𝗎𝖻 Most Loved Members</b> 🌸\n\n"
+    lb_text = "🏆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢/🇺𝖻 Most Loved Members</b> 🌸\n\n"
     medals = ["🥇", "🥈", "🥉", "✨", "✨"]
     
     for index, (uid, info) in enumerate(sorted_users):
@@ -93,9 +96,10 @@ def show_leaderboard(message):
 @bot.message_handler(func=lambda message: message.chat.type in ['group', 'supergroup'], content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
 def handle_group_messages(message):
     user_id = message.from_user.id
-    name = message.from_user.first_name or "Kawaii Member"
+    raw_name = message.from_user.first_name or "Kawaii Member"
+    name = raw_name.replace('<', '&lt;').replace('>', '&gt;')
     
-    # Background me chupchaap Hearts badhao
+    # Background me Hearts points calculate karna
     if user_id not in user_hearts:
         user_hearts[user_id] = {"name": name, "hearts": 0}
     
