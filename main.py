@@ -14,33 +14,43 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "⛩️ Mitsuha Bot is live and running perfectly!"
+    return "⛩️ Mitsuha Bot is live, secured and running perfectly!"
 
-# 🔒 Production Configuration - Reads from Environment Variables or Fallbacks
+# 🔒 Reads from Render Environment Variables
 TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 bot = telebot.TeleBot(TOKEN)
 
-YOUR_USER_ID = int(os.environ.get('ADMIN_ID', 8787638791))             # Admin/Owner Numeric ID
-GROUP_CHAT_ID = int(os.environ.get('GROUP_ID', -1003983125875))       # Main Girls Group Chat ID
-BACKUP_CHAT_ID = int(os.environ.get('BACKUP_ID', YOUR_USER_ID))        # Logs and Backup Channel/Admin ID
-
+YOUR_USER_ID = int(os.environ.get('ADMIN_ID', 0))             # Auto-filled from Render ADMIN_ID
+GROUP_CHAT_ID = int(os.environ.get('GROUP_ID', 0))           # Auto-filled from Render GROUP_ID
 DB_FILE = "mitsuha_bot.db"
+GROUP_LINK = "https://t.me/KawaiiClubGirls"                  # Verified Group Link 💖
 
-# --- 📦 CLOUD BACKUP ENGINE ---
-def backup_to_telegram():
-    """Sends the latest SQLite database file backup copy to the cloud channel."""
-    try:
-        if os.path.exists(DB_FILE):
-            with open(DB_FILE, 'rb') as f:
-                bot.send_document(
-                    BACKUP_CHAT_ID, 
-                    f, 
-                    caption=f"📦 #MITSUHA_BACKUP\n🕒 Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n⚠️ Safe keeping for Render redeploys."
-                )
-            logging.info("Database successfully backed up to Telegram cloud channel.")
-    except Exception as e:
-        logging.error(f"Error during database automatic cloud backup: {e}")
-
+# --- 🛡️ SECURITY WRAPPER (FORCE JOIN ENGINE) ---
+def check_membership(func):
+    def wrapper(message):
+        # Membership check sirf private DM ke liye apply hoga
+        if message.chat.type == 'private':
+            # Admin/Owner ko humesha full access milega, check karne ki zaroorat nahi
+            if message.from_user.id == YOUR_USER_ID:
+                return func(message)
+            try:
+                member = bot.get_chat_member(GROUP_CHAT_ID, message.from_user.id)
+                if member.status in ['left', 'kicked']:
+                    no_access_msg = (
+                        f"❌ <b>Access Denied, Sweetie!</b> 🥺\n\n"
+                        f"Is bot ke personal features aur details check karne ke liye "
+                        f"aapko pehle hamara main group join karna hoga.\n\n"
+                        f"🌸 <b>Join Here:</b> {GROUP_LINK}\n\n"
+                        f"Join karne ke baad dobara command type karein! 💕"
+                    )
+                    bot.reply_to(message, no_access_msg, parse_mode='HTML', disable_web_page_preview=True)
+                    return
+            except Exception as e:
+                logging.error(f"Membership check system error: {e}")
+                bot.reply_to(message, "⚠️ System verification temporary unavailable. Please try again later.")
+                return
+        return func(message)
+    return wrapper
 
 # --- 📁 DATABASE ENGINE (THREAD-SAFE WAL MODE) ---
 def get_db_connection():
@@ -100,7 +110,6 @@ def init_db():
 
 init_db()
 
-
 # --- 🎀 TITLES, LEVELS & ESCAPE HELPERS ---
 LEVELS = [
     (10000, "Angel Queen 👼✨"),
@@ -128,7 +137,6 @@ def get_level_info(hearts):
 def escape_html(text):
     if not text: return "Angel"
     return text.replace('<', '&lt;').replace('>', '&gt;')
-
 
 # --- 🏆 ACHIEVEMENTS CONFIGURATION & DISPATCHER ---
 ACHIEVEMENTS_BOOK = {
@@ -159,10 +167,8 @@ def grant_achievement(user_id, achievement_id, chat_id, explicit_first_name=None
             f"Keep spreading cozy vibes! 💕"
         )
         bot.send_message(chat_id, announcement, parse_mode='HTML')
-        backup_to_telegram()
     else:
         conn.close()
-
 
 # --- 🚀 AUTOMATIC CHAT ROUTINES & TRACKER ---
 @bot.message_handler(func=lambda message: message.chat.type in ['group', 'supergroup'], content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
@@ -185,7 +191,6 @@ def process_incoming_activities(message):
     last_daily = today_date_str
     
     if not user_row:
-        # Fresh Registration Entry
         conn.execute("""
             INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, last_msg_time) 
             VALUES (?, ?, ?, 10, 1, 1, ?, ?, ?)
@@ -196,7 +201,6 @@ def process_incoming_activities(message):
         current_streak = user_row["daily_streak"]
         last_daily = user_row["last_daily"]
         
-        # Streak Processor Logic
         if not last_daily:
             current_streak = 1
             last_daily = today_date_str
@@ -225,19 +229,14 @@ def process_incoming_activities(message):
     conn.commit()
     conn.close()
     
-    # Trigger Dynamic Progress Achievement Evaluations
     if current_msg_count == 1: grant_achievement(user_id, "first_msg", message.chat.id, first_name)
     if current_msg_count == 100: grant_achievement(user_id, "msg_100", message.chat.id, first_name)
     if current_hearts >= 1000: grant_achievement(user_id, "hearts_1000", message.chat.id, first_name)
     if current_streak >= 7: grant_achievement(user_id, "streak_7", message.chat.id, first_name)
-    
-    # Optimization: Periodically sync the filesystem out to cloud on intervals
-    if current_msg_count % 20 == 0:
-        backup_to_telegram()
 
-
-# --- 💖 MEMBER PORTAL COMMANDS ---
+# --- 💖 MEMBER PORTAL COMMANDS (WITH SECURITY) ---
 @bot.message_handler(commands=['start'])
+@check_membership
 def command_start(message):
     welcome = (
         "🍥 <b>Konichiwa! Main hoon Mitsuha.</b> ⛩️\n\n"
@@ -248,16 +247,19 @@ def command_start(message):
     bot.reply_to(message, welcome, parse_mode='HTML')
 
 @bot.message_handler(commands=['rules'])
+@check_membership
 def command_rules(message):
-    rules = "˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢 footprints 𝖱𝗎𝗅𝖾𝗌</b> 🌸 ໒꒱ ‧₊˚\n\n1. Sabhi ke sath respectful aur friendly raho! 💕\n2. Group me unnecessary links, spamming aur fights completely banned hain."
+    rules = f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖱𝗎𝗅𝖾𝗌</b> 🌸 ໒꒱ ‧₊˚\n\n1. Sabhi ke sath respectful aur friendly raho! 💕\n2. Group me unnecessary links, spamming aur fights completely banned hain."
     bot.reply_to(message, rules, parse_mode='HTML')
 
 @bot.message_handler(commands=['groups'])
+@check_membership
 def command_groups(message):
     network = "🔗 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Network Hub</b> 🌸\n\n🤝 <b>Partner Community:</b> @team_tamashi"
     bot.reply_to(message, network, parse_mode='HTML')
 
 @bot.message_handler(commands=['hearts'])
+@check_membership
 def command_hearts(message):
     user_id = message.from_user.id
     name = escape_html(message.from_user.first_name)
@@ -274,6 +276,7 @@ def command_hearts(message):
         bot.reply_to(message, f"🌸 <b>{name}</b>, abhi aapke paas 0 Hearts hain. Group me chat shuru karo! 💕", parse_mode='HTML')
 
 @bot.message_handler(commands=['profile'])
+@check_membership
 def command_profile(message):
     user_id = message.from_user.id
     name = escape_html(message.from_user.first_name)
@@ -296,7 +299,7 @@ def command_profile(message):
     _, title, _ = get_level_info(user_row["hearts"])
     
     profile_card = (
-        f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖯/𝖱𝖮𝖥𝖨𝖫𝖤</b> 🌸 ໒꒱ ‧₊˚\n\n"
+        f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖯𝖱𝖮𝖥𝖨𝖫𝖤</b> 🌸 ໒꒱ ‧₊˚\n\n"
         f"🙋‍♀️ Name: <b>{name}</b>\n"
         f"💖 Hearts Multiplier: <b>{user_row['hearts']}</b>\n"
         f"💮 Member Title: <b>{title}</b>\n"
@@ -309,6 +312,7 @@ def command_profile(message):
     bot.reply_to(message, profile_card, parse_mode='HTML')
 
 @bot.message_handler(commands=['rank'])
+@check_membership
 def command_rank(message):
     user_id = message.from_user.id
     conn = get_db_connection()
@@ -326,6 +330,7 @@ def command_rank(message):
     bot.reply_to(message, f"🏆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Global Position</b>\n\n🎯 Aapki Rank: <b>#{rank}</b>\n💖 Total Accumulation: <b>{user_data['hearts']} Hearts</b>\n📈 {needed_str}", parse_mode='HTML')
 
 @bot.message_handler(commands=['activity'])
+@check_membership
 def command_activity(message):
     user_id = message.from_user.id
     conn = get_db_connection()
@@ -340,6 +345,7 @@ def command_activity(message):
     bot.reply_to(message, f"📊 <b>Personal Activity Tracker:</b>\n\n💬 Total Messages: <b>{row['msg_count']}</b>\n🔥 Daily Activity Streak: <b>{row['daily_streak']} Days</b>\n🕒 Last Seen Active: <code>{last_seen_date}</code>", parse_mode='HTML')
 
 @bot.message_handler(commands=['sweethearts'])
+@check_membership
 def command_sweethearts(message):
     conn = get_db_connection()
     rows = conn.execute("SELECT user_id, first_name, hearts FROM users ORDER BY hearts DESC LIMIT 10").fetchall()
@@ -358,9 +364,9 @@ def command_sweethearts(message):
     conn.close()
     bot.reply_to(message, lb_text, parse_mode='HTML')
 
-
 # --- 📊 GROUP STATISTICS ENGINE ---
 @bot.message_handler(commands=['groupstats'])
+@check_membership
 def command_groupstats(message):
     now_date = datetime.now()
     today_stamp = now_date.strftime("%Y-%m-%d")
@@ -392,12 +398,12 @@ def command_groupstats(message):
     )
     bot.reply_to(message, stats_msg, parse_mode='HTML')
 
-
 # --- 🛡️ EXCLUSIVE MODERATION FRAMEWORK ---
 def is_user_admin(chat_id, user_id):
     try:
+        if user_id == YOUR_USER_ID: return True
         admins = bot.get_chat_administrators(chat_id)
-        return any(admin.user.id == user_id for admin in admins) or user_id == YOUR_USER_ID
+        return any(admin.user.id == user_id for admin in admins)
     except Exception:
         return False
 
@@ -432,7 +438,6 @@ def command_warn(message):
             bot.send_message(message.chat.id, f"🔒 <b>{target_name}</b> ne maximum safety warning cross kar di hain. Unhein auto-mute kar diya gaya hai for 24 Hours!")
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Action failure details: {e}")
-    backup_to_telegram()
 
 @bot.message_handler(commands=['warnings'])
 def command_warnings(message):
@@ -457,7 +462,6 @@ def command_clearwarns(message):
     conn.commit()
     conn.close()
     bot.reply_to(message, "✅ Saari active warnings clear ho gayi hain. Account record clean ho gaya! 💕")
-    backup_to_telegram()
 
 @bot.message_handler(commands=['mute'])
 def command_mute(message):
@@ -488,7 +492,7 @@ def command_kick(message):
     if is_user_admin(message.chat.id, target_id): return
     try:
         bot.ban_chat_member(message.chat.id, target_id)
-        bot.unban_chat_member(message.chat.id, target_id) # Immediate lift restriction transforms ban into raw kick
+        bot.unban_chat_member(message.chat.id, target_id)
         bot.reply_to(message, "👋 Member ko safety protocol ke tehat group se remove kar diya gaya.")
     except Exception as e: bot.reply_to(message, f"❌ Request denied: {e}")
 
@@ -515,11 +519,9 @@ def command_unban(message):
         bot.reply_to(message, "✅ Restrictions removed. User can join back via link! ✨")
     except Exception as e: bot.reply_to(message, f"❌ Request failed: {e}")
 
-
-# --- 👑 ADMINISTRATIVE EXCLUSIVE CMDS (BADGE AWARDS) ---
+# --- 👑 ADMINISTRATIVE EXCLUSIVE (MANUAL GIFT BADGES) ---
 @bot.message_handler(commands=['giftbadge'])
 def command_giftbadge(message):
-    """Allows Owner to manually grant specific event badges to users via reply."""
     if message.from_user.id != YOUR_USER_ID: return
     if not message.reply_to_message:
         bot.reply_to(message, "❌ Kisi active message par reply karke badge grant karein. Format: /giftbadge event_winner")
@@ -537,13 +539,30 @@ def command_giftbadge(message):
     target_name = message.reply_to_message.from_user.first_name
     grant_achievement(target_id, badge_id, message.chat.id, target_name)
 
+# --- 👑 CLEAN MANUAL BACKUP ENGINE (NO SPAM) ---
+@bot.message_handler(commands=['backup'])
+def manual_backup(message):
+    if message.from_user.id == YOUR_USER_ID:
+        try:
+            if os.path.exists(DB_FILE):
+                with open(DB_FILE, "rb") as doc:
+                    bot.send_document(
+                        message.chat.id, 
+                        doc, 
+                        caption=f"📦 #MITSUHA_BACKUP\n🕒 Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n⚠️ Safe keeping for Render redeploys."
+                    )
+            else:
+                bot.reply_to(message, "❌ Database file abhi tak generate nahi hui hai.")
+        except Exception as e:
+            bot.reply_to(message, f"❌ Backup failure error: {e}")
+    else:
+        bot.reply_to(message, "❌ Arey bhai, ye command sirf Master Owner ke liye safe-locked hai!")
 
-# --- ⏳ BACKGROUND AUTOMATED INACTIVITY ENFORCEMENT LOOP (WITH BULLETPROOF FORCE-TAGGING) ---
+# --- ⏳ BACKGROUND AUTOMATED INACTIVITY ENFORCEMENT LOOP ---
 def execute_inactivity_scan_cycle():
-    """Runs a strict background loop once every 24 hours to monitor and tag inactive accounts."""
     while True:
         try:
-            time.sleep(86400) # Deep Sleep: 24-hour evaluation interval
+            time.sleep(86400) # Runs strictly once every 24 hours
             logging.info("Initiating routine scan for tracking user inactivity durations...")
             
             conn = get_db_connection()
@@ -560,16 +579,15 @@ def execute_inactivity_scan_cycle():
                 if last_active_epoch == 0: continue
                 days_elapsed = (now_epoch - last_active_epoch) / 86400
                 
-                # Exclude Admins, Safety Bot Accounts, or the Master Owner
+                # Admins aur Bots ko skip karna hai safety ke liye
                 if is_user_admin(GROUP_CHAT_ID, uid): continue
                 
-                # 🏷️ Bulletproof Notification Tagging Engine: Uses @username if set, else forces via HTML anchor
                 if username_raw:
                     tag_mention = f"@{username_raw}"
                 else:
                     tag_mention = f'<a href="tg://user?id={uid}">{name_clean}</a>'
                 
-                # Tiered Notification Alert Pipelines
+                # Notification triggers based on days
                 if 5.0 <= days_elapsed < 6.0:
                     alert = f"🌸 🔔 <b>Reminder:</b> Hey {tag_mention}, hum sab aapko group me bahut miss kar rahe hain! Aakar thodi baatein karo na! 💕"
                     bot.send_message(GROUP_CHAT_ID, alert, parse_mode='HTML')
@@ -581,11 +599,11 @@ def execute_inactivity_scan_cycle():
                 elif days_elapsed >= 7.0:
                     try:
                         bot.ban_chat_member(GROUP_CHAT_ID, uid)
-                        bot.unban_chat_member(GROUP_CHAT_ID, uid) # Perform direct extraction kick
+                        bot.unban_chat_member(GROUP_CHAT_ID, uid) # Transient ban executes a clean kick
                         expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 dinon ki continuous inactivity ki wajah se group se remove kar diya gya hai."
                         bot.send_message(GROUP_CHAT_ID, expulsion_notice, parse_mode='HTML')
                     except Exception as ex:
-                        logging.error(f"Inactivity processing failed to clean account user {uid}: {ex}")
+                        logging.error(f"Inactivity kick failed for user {uid}: {ex}")
                         
             conn.close()
         except Exception as loop_error:
@@ -595,12 +613,12 @@ inactivity_daemon = Thread(target=execute_inactivity_scan_cycle)
 inactivity_daemon.daemon = True
 inactivity_daemon.start()
 
-
 # --- 📖 GROUPED HELP ARCHITECTURE ---
 @bot.message_handler(commands=['help'])
+@check_membership
 def command_help(message):
     help_manifest = (
-        "˚₊‧꒰ა ⛩️ 🎀 <b>𝖬𝗂𝗍𝗌𝗎𝗁𝖺 𝖡𝗈𝗍 𝖧𝖾𝗅𝗉 𝖣𝖾𝗌𝗄</b> 🌸 ໒꒱ ‧₊˚\n\n"
+        "˚₊‧꒰ാ ⛩️ 🎀 <b>𝖬\n𝗂𝗍𝗌𝗎𝗁𝖺 𝖡𝗈𝗍 𝖧𝖾𝗅𝗉 𝖣𝖾𝗌𝗄</b> 🌸 ໒꒱ ‧₊˚\n\n"
         "💖 <b>𝖬𝖤𝖬𝖡𝖤𝖱 𝖢𝖮𝖬𝖬𝖠𝖭𝖣𝖲:</b>\n"
         "• /start - Setup welcome orientation note\n"
         "• /rules - View core group framework rules\n"
@@ -613,31 +631,29 @@ def command_help(message):
         "📊 <b>𝖲𝖳𝖠𝖳𝖨𝖲𝖳𝖨𝖢𝖲:</b>\n"
         "• /groupstats - Compute group traffic analytics summary\n\n"
         "🛡️ <b>𝖬𝖮𝖣𝖤𝖱𝖠𝖳𝖨𝖮𝖭:</b>\n"
-        "• /warn - Strike a warning onto user profile (Reply via text)\n"
-        "• /warnings - View list of total active warnings accumulated\n"
-        "• /clearwarns - Wipe account structural warning tallies clean\n"
-        "• /mute | /unmute - Restrict/Restore message sending abilities\n"
+        "• /warn - Strike a warning onto user profile\n"
+        "• /warnings - View list of total active warnings\n"
+        "• /clearwarns - Wipe account structural warning tallies\n"
+        "• /mute | /unmute - Restrict/Restore message abilities\n"
         "• /kick - Perform transient safe user removal\n"
-        "• /ban | /unban - Control full entry blacklists permanently\n\n"
-        "👑 <b>𝖠𝖣𝖬𝖨𝖭:</b>\n"
-        "• DM Re-routing engine enabled. Direct files sent here manage backups."
+        "• /ban | /unban - Control full entry blacklists\n\n"
+        "👑 <b>𝖮𝖶𝖭𝖤𝖱 / 𝖠𝖣𝖬𝖨𝖭:</b>\n"
+        "• /backup - Requests database `.db` file manually in chat.\n"
+        "• DM Restore - Bot ke personal chat me `mitsuha_bot.db` file send karke database instantly overwrite aur restore kar sakte ho."
     )
     bot.reply_to(message, help_manifest, parse_mode='HTML')
-
 
 # --- 👑 ADMIN DM RE-ROUTING & PERSISTENT MANUAL RESTORE ENGINE ---
 @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
 def handle_admin_private_portal(message):
-    # Only process interactions from designated system owner account
     if message.from_user.id != YOUR_USER_ID:
-        bot.reply_to(message, "❌ Aap is bot ke admin/owner nahi ho, sweetie!")
+        # Agar koi outsider DM karta hai (aur wo member hai), tabhi ye access block automatic work karega.
         return
 
-    # Check if Admin sent a Document to Restore Database
+    # Check if Admin sent the Database Document to Restore data
     if message.content_type == 'document':
         if message.document.file_name == DB_FILE:
             try:
-                # Download and overwrite current local filesystem database instance
                 file_info = bot.get_file(message.document.file_id)
                 downloaded_file = bot.download_file(file_info.file_path)
                 
@@ -652,15 +668,14 @@ def handle_admin_private_portal(message):
             bot.reply_to(message, f"❌ File ka naam strict <code>{DB_FILE}</code> hona chahiye to pass cloud restore.", parse_mode='HTML')
         return
 
-    # Standard Text Forwarding Workflow to Main Group Channel
+    # Owner normal message forwarding system to Group
     try:
         bot.copy_message(chat_id=GROUP_CHAT_ID, from_chat_id=message.chat.id, message_id=message.message_id)
         bot.reply_to(message, "✅ Announcement group me copy karke post kar di hai, boss!")
     except Exception as network_error:
         bot.reply_to(message, f"❌ Post forwarding failed: {network_error}")
 
-
-# --- 🌐 WORKER ROUTINE WORKER POLLING LAUNCHERS ---
+# --- 🌐 WORKER ROUTINE POLLING LAUNCHERS ---
 def execute_bot_polling():
     logging.info("Starting up core asynchronous bot runtime polling thread...")
     bot.infinity_polling()
@@ -670,5 +685,4 @@ polling_thread.daemon = True
 polling_thread.start()
 
 if __name__ == '__main__':
-    # Flask runner targeting default ports matching Render cloud deployment specs
     app.run(host='0.0.0.0', port=10000)
