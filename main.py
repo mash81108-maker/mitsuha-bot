@@ -155,7 +155,7 @@ def grant_achievement(user_id, achievement_id, chat_id, explicit_first_name=None
         display_name = escape_html(explicit_first_name) if explicit_first_name else "Angel"
         
         announcement = (
-            f"✨ <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖠𝖼𝗁𝗂𝖾𝗏𝖾𝗆𝖾่น𝗍 𝖴𝗇𝗅𝗈𝖼𝗄𝖾𝖽!</b> 🎀\n\n"
+            f"✨ <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖠𝖼𝗁𝗂𝖾𝗏𝖾𝗆𝖾่น𝗍 𝖴𝗇𝗅𝗈𝖼けた!</b> 🎀\n\n"
             f"🌸 🔔 <b>{display_name}</b> has unlocked a special milestone:\n"
             f"{ach['badge']} <b>{ach['title']}</b> — <i>{ach['desc']}</i>\n\n"
             f"Keep spreading cozy vibes! 💕"
@@ -163,80 +163,6 @@ def grant_achievement(user_id, achievement_id, chat_id, explicit_first_name=None
         bot.send_message(chat_id, announcement, parse_mode='HTML')
     else:
         conn.close()
-
-# --- 🚀 AUTOMATIC CHAT ROUTINES & TRACKER ---
-@bot.message_handler(func=lambda message: message.chat.type in ['group', 'supergroup'], content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
-def process_incoming_activities(message):
-    if message.from_user.is_bot: return
-    
-    try:
-        user_id = message.from_user.id
-        username = message.from_user.username
-        first_name = message.from_user.first_name
-        now_time = time.time()
-        today_date_str = datetime.now().strftime("%Y-%m-%d")
-        now_timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        conn = get_db_connection()
-        user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
-        
-        current_msg_count = 1
-        current_hearts = 10
-        current_streak = 1
-        last_daily = today_date_str
-        
-        if not user_row:
-            conn.execute("""
-                INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, last_msg_time) 
-                VALUES (?, ?, ?, 10, 1, 1, ?, ?, ?)
-            """, (user_id, username, first_name, today_date_str, now_timestamp_str, now_time))
-        else:
-            current_msg_count = user_row["msg_count"] + 1
-            current_hearts = user_row["hearts"] + 10
-            current_streak = user_row["daily_streak"]
-            last_daily = user_row["last_daily"]
-            
-            if not last_daily:
-                current_streak = 1
-                last_daily = today_date_str
-            else:
-                try:
-                    last_date_obj = datetime.strptime(last_daily, "%Y-%m-%d").date()
-                    today_obj = datetime.now().date()
-                    delta_days = (today_obj - last_date_obj).days
-                    
-                    if delta_days == 1:
-                        current_streak += 1
-                        last_daily = today_date_str
-                    elif delta_days > 1:
-                        current_streak = 1
-                        last_daily = today_date_str
-                except Exception:
-                    current_streak = 1
-                    last_daily = today_date_str
-                    
-            conn.execute("""
-                UPDATE users SET username = ?, first_name = ?, hearts = ?, msg_count = ?, daily_streak = ?, last_daily = ?, last_msg_time = ? 
-                WHERE user_id = ?
-            """, (username, first_name, current_hearts, current_msg_count, current_streak, last_daily, now_time, user_id))
-            
-        conn.execute("INSERT INTO message_log (user_id, timestamp) VALUES (?, ?)", (user_id, now_timestamp_str))
-        conn.commit()
-        conn.close()
-        
-        # Safe Unique Achievement triggers
-        if current_msg_count == 1: 
-            grant_achievement(user_id, "first_msg", message.chat.id, first_name)
-        elif current_msg_count == 100: 
-            grant_achievement(user_id, "msg_100", message.chat.id, first_name)
-        
-        if current_hearts >= 1000: 
-            grant_achievement(user_id, "hearts_1000", message.chat.id, first_name)
-        if current_streak >= 7: 
-            grant_achievement(user_id, "streak_7", message.chat.id, first_name)
-            
-    except Exception as e:
-        logging.error(f"Error in message tracking system: {e}")
 
 # --- 💖 MEMBER PORTAL COMMANDS (WITH SECURITY) ---
 @bot.message_handler(commands=['start'])
@@ -253,7 +179,7 @@ def command_start(message):
 @bot.message_handler(commands=['rules'])
 @check_membership
 def command_rules(message):
-    rules = f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖱𝗎𝗅𝖾𝗌</b> 🌸 ໒꒱ ‧₊˚\n\n1. Sabhi ke sath respectful aur friendly raho! 💕\n2. Group me unnecessary links, spamming aur fights completely banned hain."
+    rules = f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖲𝖺𝖿𝖾𝗍𝖞 𝖱𝗎𝗅𝖾𝗌</b> 🌸 ໒꒱ ‧₊˚\n\n1. Sabhi ke sath respectful aur friendly raho! 💕\n2. Group me unnecessary links, spamming aur fights completely banned hain."
     bot.reply_to(message, rules, parse_mode='HTML')
 
 @bot.message_handler(commands=['groups'])
@@ -303,7 +229,7 @@ def command_profile(message):
     _, title, _ = get_level_info(user_row["hearts"])
     
     profile_card = (
-        f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖯𝖱𝖮𝖥𝖨𝖫𝖤</b> 🌸 ໒꒱ ‧₊˚\n\n"
+        f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖯𝖱𝖮𝖥𝖨𝖖𝖤</b> 🌸 ໒꒱ ‧₊˚\n\n"
         f"🙋‍♀️ Name: <b>{name}</b>\n"
         f"💖 Hearts Multiplier: <b>{user_row['hearts']}</b>\n"
         f"💮 Member Title: <b>{title}</b>\n"
@@ -562,6 +488,141 @@ def manual_backup(message):
     else:
         bot.reply_to(message, "❌ Arey bhai, ye command sirf Master Owner ke liye safe-locked hai!")
 
+# --- 📖 GROUPED HELP ARCHITECTURE ---
+@bot.message_handler(commands=['help'])
+@check_membership
+def command_help(message):
+    help_manifest = (
+        "˚₊‧꒰ა ⛩️ 🎀 <b>𝖬𝗂𝗍𝗌𝗎𝗁𝖺 𝖡𝗈𝗍 𝖧𝖾𝗅𝗉 𝖣𝖾𝗌k</b> 🌸 ໒꒱ ‧₊˚\n\n"
+        "💖 <b>𝖬𝖤𝖬𝖡𝖤𝖱 𝖢𝖮𝖬𝖬𝖠𝖭𝖣𝖲:</b>\n"
+        "• /start - Setup welcome orientation note\n"
+        "• /rules - View core group framework rules\n"
+        "• /groups - Check connected network links\n"
+        "• /hearts - Inspect your tracked scores & titles\n"
+        "• /profile - Fetch your full user profile identity card\n"
+        "• /rank - Show your global standing tier position\n"
+        "• /activity - View private daily activity telemetry logs\n"
+        "• /sweethearts - Display Top 10 most active members leaderboard\n\n"
+        "📊 <b>𝖲𝖳AW𝖨𝖲𝖳𝖨𝖢𝖲:</b>\n"
+        "• /groupstats - Compute group traffic analytics summary\n\n"
+        "🛡️ <b>𝖬𝖮𝖣𝖤𝖱𝖳𝖨𝖮𝖭:</b>\n"
+        "• /warn - Strike a warning onto user profile\n"
+        "• /warnings - View list of total active warnings\n"
+        "• /clearwarns - Wipe account structural warning tallies\n"
+        "• /mute | /unmute - Restrict/Restore message abilities\n"
+        "• /kick - Perform transient safe user removal\n"
+        "• /ban | /unban - Control full entry blacklists\n\n"
+        "👑 <b>𝖮𝖶𝖿𝖤𝖱 / 𝖠𝖣𝖬𝖨𝖭:</b>\n"
+        "• /backup - Requests database `.db` file manually in chat.\n"
+        "• DM Restore - Bot ke personal chat me `mitsuha_bot.db` file send karke database instantly overwrite aur restore kar sakte ho."
+    )
+    bot.reply_to(message, help_manifest, parse_mode='HTML')
+
+
+# --- 🚀 AUTOMATIC CHAT ROUTINES & TRACKER (FIXED POSITION: NOW BELOW COMMANDS) ---
+@bot.message_handler(func=lambda message: message.chat.type in ['group', 'supergroup'] and not (message.text and message.text.startswith('/')), content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
+def process_incoming_activities(message):
+    if message.from_user.is_bot: return
+    
+    try:
+        user_id = message.from_user.id
+        username = message.from_user.username
+        first_name = message.from_user.first_name
+        now_time = time.time()
+        today_date_str = datetime.now().strftime("%Y-%m-%d")
+        now_timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        conn = get_db_connection()
+        user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        
+        current_msg_count = 1
+        current_hearts = 10
+        current_streak = 1
+        last_daily = today_date_str
+        
+        if not user_row:
+            conn.execute("""
+                INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, last_msg_time) 
+                VALUES (?, ?, ?, 10, 1, 1, ?, ?, ?)
+            """, (user_id, username, first_name, today_date_str, now_timestamp_str, now_time))
+        else:
+            current_msg_count = user_row["msg_count"] + 1
+            current_hearts = user_row["hearts"] + 10
+            current_streak = user_row["daily_streak"]
+            last_daily = user_row["last_daily"]
+            
+            if not last_daily:
+                current_streak = 1
+                last_daily = today_date_str
+            else:
+                try:
+                    last_date_obj = datetime.strptime(last_daily, "%Y-%m-%d").date()
+                    today_obj = datetime.now().date()
+                    delta_days = (today_obj - last_date_obj).days
+                    
+                    if delta_days == 1:
+                        current_streak += 1
+                        last_daily = today_date_str
+                    elif delta_days > 1:
+                        current_streak = 1
+                        last_daily = today_date_str
+                except Exception:
+                    current_streak = 1
+                    last_daily = today_date_str
+                    
+            conn.execute("""
+                UPDATE users SET username = ?, first_name = ?, hearts = ?, msg_count = ?, daily_streak = ?, last_daily = ?, last_msg_time = ? 
+                WHERE user_id = ?
+            """, (username, first_name, current_hearts, current_msg_count, current_streak, last_daily, now_time, user_id))
+            
+        conn.execute("INSERT INTO message_log (user_id, timestamp) VALUES (?, ?)", (user_id, now_timestamp_str))
+        conn.commit()
+        conn.close()
+        
+        # Safe Unique Achievement triggers
+        if current_msg_count == 1: 
+            grant_achievement(user_id, "first_msg", message.chat.id, first_name)
+        elif current_msg_count == 100: 
+            grant_achievement(user_id, "msg_100", message.chat.id, first_name)
+        
+        if current_hearts >= 1000: 
+            grant_achievement(user_id, "hearts_1000", message.chat.id, first_name)
+        if current_streak >= 7: 
+            grant_achievement(user_id, "streak_7", message.chat.id, first_name)
+            
+    except Exception as e:
+        logging.error(f"Error in message tracking system: {e}")
+
+
+# --- 👑 ADMIN DM RE-ROUTING & PERSISTENT MANUAL RESTORE ENGINE ---
+@bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
+def handle_admin_private_portal(message):
+    if message.from_user.id != YOUR_USER_ID:
+        return
+
+    if message.content_type == 'document':
+        if message.document.file_name == DB_FILE:
+            try:
+                file_info = bot.get_file(message.document.file_id)
+                downloaded_file = bot.download_file(file_info.file_path)
+                
+                with open(DB_FILE, 'wb') as new_db:
+                    new_db.write(downloaded_file)
+                
+                bot.reply_to(message, "✅ <b>Database Overwritten Successfully!</b> Puraana saara data successfully restore ho gaya hai! 🔥🌸", parse_mode='HTML')
+                logging.info("Database instance manually replaced via Admin workspace upload.")
+            except Exception as restoration_failure:
+                bot.reply_to(message, f"❌ Restoration error encountered: {restoration_failure}")
+        else:
+            bot.reply_to(message, f"❌ File ka naam strict <code>{DB_FILE}</code> hona chahiye.", parse_mode='HTML')
+        return
+
+    try:
+        bot.copy_message(chat_id=GROUP_CHAT_ID, from_chat_id=message.chat.id, message_id=message.message_id)
+        bot.reply_to(message, "✅ Announcement group me copy karke post kar di hai, boss!")
+    except Exception as network_error:
+        bot.reply_to(message, f"❌ Post forwarding failed: {network_error}")
+
 # --- ⏳ BACKGROUND AUTOMATED INACTIVITY ENFORCEMENT LOOP ---
 def execute_inactivity_scan_cycle():
     while True:
@@ -614,65 +675,6 @@ def execute_inactivity_scan_cycle():
 inactivity_daemon = Thread(target=execute_inactivity_scan_cycle)
 inactivity_daemon.daemon = True
 inactivity_daemon.start()
-
-# --- 📖 GROUPED HELP ARCHITECTURE ---
-@bot.message_handler(commands=['help'])
-@check_membership
-def command_help(message):
-    help_manifest = (
-        "˚₊‧꒰ാ ⛩️ 🎀 <b>𝖬\n𝗂𝗍𝗌𝗎𝗁𝖺 𝖡𝗈𝗍 𝖧𝖾𝗅𝗉 𝖣𝖾𝗌𝗄</b> 🌸 ໒꒱ ‧₊˚\n\n"
-        "💖 <b>𝖬𝖤𝖬𝖡𝖤𝖱 𝖢𝖮𝖬𝖬𝖠𝖭𝖣𝖲:</b>\n"
-        "• /start - Setup welcome orientation note\n"
-        "• /rules - View core group framework rules\n"
-        "• /groups - Check connected network links\n"
-        "• /hearts - Inspect your tracked scores & titles\n"
-        "• /profile - Fetch your full user profile identity card\n"
-        "• /rank - Show your global standing tier position\n"
-        "• /activity - View private daily activity telemetry logs\n"
-        "• /sweethearts - Display Top 10 most active members leaderboard\n\n"
-        "📊 <b>𝖲𝖳𝖠𝖳𝖨𝖲𝖳𝖨𝖢𝖲:</b>\n"
-        "• /groupstats - Compute group traffic analytics summary\n\n"
-        "🛡️ <b>𝖖𝖮𝖣𝖤𝖱𝖠𝖳𝖨𝖮𝖭:</b>\n"
-        "• /warn - Strike a warning onto user profile\n"
-        "• /warnings - View list of total active warnings\n"
-        "• /clearwarns - Wipe account structural warning tallies\n"
-        "• /mute | /unmute - Restrict/Restore message abilities\n"
-        "• /kick - Perform transient safe user removal\n"
-        "• /ban | /unban - Control full entry blacklists\n\n"
-        "👑 <b>𝖮𝖶𝖭𝖤𝖱 / 𝖠𝖣𝖨𝖨𝖭:</b>\n"
-        "• /backup - Requests database `.db` file manually in chat.\n"
-        "• DM Restore - Bot ke personal chat me `mitsuha_bot.db` file send karke database instantly overwrite aur restore kar sakte ho."
-    )
-    bot.reply_to(message, help_manifest, parse_mode='HTML')
-
-# --- 👑 ADMIN DM RE-ROUTING & PERSISTENT MANUAL RESTORE ENGINE ---
-@bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
-def handle_admin_private_portal(message):
-    if message.from_user.id != YOUR_USER_ID:
-        return
-
-    if message.content_type == 'document':
-        if message.document.file_name == DB_FILE:
-            try:
-                file_info = bot.get_file(message.document.file_id)
-                downloaded_file = bot.download_file(file_info.file_path)
-                
-                with open(DB_FILE, 'wb') as new_db:
-                    new_db.write(downloaded_file)
-                
-                bot.reply_to(message, "✅ <b>Database Overwritten Successfully!</b> Puraana saara data successfully restore ho gaya hai! 🔥🌸", parse_mode='HTML')
-                logging.info("Database instance manually replaced via Admin workspace upload.")
-            except Exception as restoration_failure:
-                bot.reply_to(message, f"❌ Restoration error encountered: {restoration_failure}")
-        else:
-            bot.reply_to(message, f"❌ File ka naam strict <code>{DB_FILE}</code> hona chahiye.", parse_mode='HTML')
-        return
-
-    try:
-        bot.copy_message(chat_id=GROUP_CHAT_ID, from_chat_id=message.chat.id, message_id=message.message_id)
-        bot.reply_to(message, "✅ Announcement group me copy karke post kar di hai, boss!")
-    except Exception as network_error:
-        bot.reply_to(message, f"❌ Post forwarding failed: {network_error}")
 
 # --- 🌐 WORKER ROUTINE POLLING LAUNCHERS ---
 def execute_bot_polling():
