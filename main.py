@@ -28,9 +28,7 @@ GROUP_LINK = "https://t.me/KawaiiClubGirls"                  # Verified Group Li
 # --- 🛡️ SECURITY WRAPPER (FORCE JOIN ENGINE) ---
 def check_membership(func):
     def wrapper(message):
-        # Membership check sirf private DM ke liye apply hoga
         if message.chat.type == 'private':
-            # Admin/Owner ko humesha full access milega, check karne ki zaroorat nahi
             if message.from_user.id == YOUR_USER_ID:
                 return func(message)
             try:
@@ -63,7 +61,6 @@ def init_db():
     cursor = conn.cursor()
     cursor.execute("PRAGMA journal_mode=WAL;")
     
-    # Core User Accounts
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
@@ -78,7 +75,6 @@ def init_db():
     )
     """)
     
-    # Achievements Tracking
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS achievements (
         user_id INTEGER,
@@ -88,7 +84,6 @@ def init_db():
     )
     """)
     
-    # Moderation System Logs
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS warnings (
         user_id INTEGER PRIMARY KEY,
@@ -96,7 +91,6 @@ def init_db():
     )
     """)
     
-    # Global Activity Message Analytics Logger
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS message_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,66 +167,76 @@ def grant_achievement(user_id, achievement_id, chat_id, explicit_first_name=None
 # --- 🚀 AUTOMATIC CHAT ROUTINES & TRACKER ---
 @bot.message_handler(func=lambda message: message.chat.type in ['group', 'supergroup'], content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
 def process_incoming_activities(message):
-    user_id = message.from_user.id
     if message.from_user.is_bot: return
     
-    username = message.from_user.username
-    first_name = message.from_user.first_name
-    now_time = time.time()
-    today_date_str = datetime.now().strftime("%Y-%m-%d")
-    now_timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    conn = get_db_connection()
-    user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
-    
-    current_msg_count = 1
-    current_hearts = 10
-    current_streak = 1
-    last_daily = today_date_str
-    
-    if not user_row:
-        conn.execute("""
-            INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, last_msg_time) 
-            VALUES (?, ?, ?, 10, 1, 1, ?, ?, ?)
-        """, (user_id, username, first_name, today_date_str, now_timestamp_str, now_time))
-    else:
-        current_msg_count = user_row["msg_count"] + 1
-        current_hearts = user_row["hearts"] + 10
-        current_streak = user_row["daily_streak"]
-        last_daily = user_row["last_daily"]
+    try:
+        user_id = message.from_user.id
+        username = message.from_user.username
+        first_name = message.from_user.first_name
+        now_time = time.time()
+        today_date_str = datetime.now().strftime("%Y-%m-%d")
+        now_timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        if not last_daily:
-            current_streak = 1
-            last_daily = today_date_str
+        conn = get_db_connection()
+        user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        
+        current_msg_count = 1
+        current_hearts = 10
+        current_streak = 1
+        last_daily = today_date_str
+        
+        if not user_row:
+            conn.execute("""
+                INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, last_msg_time) 
+                VALUES (?, ?, ?, 10, 1, 1, ?, ?, ?)
+            """, (user_id, username, first_name, today_date_str, now_timestamp_str, now_time))
         else:
-            try:
-                last_date_obj = datetime.strptime(last_daily, "%Y-%m-%d").date()
-                today_obj = datetime.now().date()
-                delta_days = (today_obj - last_date_obj).days
-                
-                if delta_days == 1:
-                    current_streak += 1
-                    last_daily = today_date_str
-                elif delta_days > 1:
-                    current_streak = 1
-                    last_daily = today_date_str
-            except Exception:
+            current_msg_count = user_row["msg_count"] + 1
+            current_hearts = user_row["hearts"] + 10
+            current_streak = user_row["daily_streak"]
+            last_daily = user_row["last_daily"]
+            
+            if not last_daily:
                 current_streak = 1
                 last_daily = today_date_str
-                
-        conn.execute("""
-            UPDATE users SET username = ?, first_name = ?, hearts = ?, msg_count = ?, daily_streak = ?, last_daily = ?, last_msg_time = ? 
-            WHERE user_id = ?
-        """, (username, first_name, current_hearts, current_msg_count, current_streak, last_daily, now_time, user_id))
+            else:
+                try:
+                    last_date_obj = datetime.strptime(last_daily, "%Y-%m-%d").date()
+                    today_obj = datetime.now().date()
+                    delta_days = (today_obj - last_date_obj).days
+                    
+                    if delta_days == 1:
+                        current_streak += 1
+                        last_daily = today_date_str
+                    elif delta_days > 1:
+                        current_streak = 1
+                        last_daily = today_date_str
+                except Exception:
+                    current_streak = 1
+                    last_daily = today_date_str
+                    
+            conn.execute("""
+                UPDATE users SET username = ?, first_name = ?, hearts = ?, msg_count = ?, daily_streak = ?, last_daily = ?, last_msg_time = ? 
+                WHERE user_id = ?
+            """, (username, first_name, current_hearts, current_msg_count, current_streak, last_daily, now_time, user_id))
+            
+        conn.execute("INSERT INTO message_log (user_id, timestamp) VALUES (?, ?)", (user_id, now_timestamp_str))
+        conn.commit()
+        conn.close()
         
-    conn.execute("INSERT INTO message_log (user_id, timestamp) VALUES (?, ?)", (user_id, now_timestamp_str))
-    conn.commit()
-    conn.close()
-    
-    if current_msg_count == 1: grant_achievement(user_id, "first_msg", message.chat.id, first_name)
-    if current_msg_count == 100: grant_achievement(user_id, "msg_100", message.chat.id, first_name)
-    if current_hearts >= 1000: grant_achievement(user_id, "hearts_1000", message.chat.id, first_name)
-    if current_streak >= 7: grant_achievement(user_id, "streak_7", message.chat.id, first_name)
+        # Safe Unique Achievement triggers
+        if current_msg_count == 1: 
+            grant_achievement(user_id, "first_msg", message.chat.id, first_name)
+        elif current_msg_count == 100: 
+            grant_achievement(user_id, "msg_100", message.chat.id, first_name)
+        
+        if current_hearts >= 1000: 
+            grant_achievement(user_id, "hearts_1000", message.chat.id, first_name)
+        if current_streak >= 7: 
+            grant_achievement(user_id, "streak_7", message.chat.id, first_name)
+            
+    except Exception as e:
+        logging.error(f"Error in message tracking system: {e}")
 
 # --- 💖 MEMBER PORTAL COMMANDS (WITH SECURITY) ---
 @bot.message_handler(commands=['start'])
@@ -579,7 +583,6 @@ def execute_inactivity_scan_cycle():
                 if last_active_epoch == 0: continue
                 days_elapsed = (now_epoch - last_active_epoch) / 86400
                 
-                # Admins aur Bots ko skip karna hai safety ke liye
                 if is_user_admin(GROUP_CHAT_ID, uid): continue
                 
                 if username_raw:
@@ -587,7 +590,6 @@ def execute_inactivity_scan_cycle():
                 else:
                     tag_mention = f'<a href="tg://user?id={uid}">{name_clean}</a>'
                 
-                # Notification triggers based on days
                 if 5.0 <= days_elapsed < 6.0:
                     alert = f"🌸 🔔 <b>Reminder:</b> Hey {tag_mention}, hum sab aapko group me bahut miss kar rahe hain! Aakar thodi baatein karo na! 💕"
                     bot.send_message(GROUP_CHAT_ID, alert, parse_mode='HTML')
@@ -599,7 +601,7 @@ def execute_inactivity_scan_cycle():
                 elif days_elapsed >= 7.0:
                     try:
                         bot.ban_chat_member(GROUP_CHAT_ID, uid)
-                        bot.unban_chat_member(GROUP_CHAT_ID, uid) # Transient ban executes a clean kick
+                        bot.unban_chat_member(GROUP_CHAT_ID, uid)
                         expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 dinon ki continuous inactivity ki wajah se group se remove kar diya gya hai."
                         bot.send_message(GROUP_CHAT_ID, expulsion_notice, parse_mode='HTML')
                     except Exception as ex:
@@ -630,14 +632,14 @@ def command_help(message):
         "• /sweethearts - Display Top 10 most active members leaderboard\n\n"
         "📊 <b>𝖲𝖳𝖠𝖳𝖨𝖲𝖳𝖨𝖢𝖲:</b>\n"
         "• /groupstats - Compute group traffic analytics summary\n\n"
-        "🛡️ <b>𝖬𝖮𝖣𝖤𝖱𝖠𝖳𝖨𝖮𝖭:</b>\n"
+        "🛡️ <b>𝖖𝖮𝖣𝖤𝖱𝖠𝖳𝖨𝖮𝖭:</b>\n"
         "• /warn - Strike a warning onto user profile\n"
         "• /warnings - View list of total active warnings\n"
         "• /clearwarns - Wipe account structural warning tallies\n"
         "• /mute | /unmute - Restrict/Restore message abilities\n"
         "• /kick - Perform transient safe user removal\n"
         "• /ban | /unban - Control full entry blacklists\n\n"
-        "👑 <b>𝖮𝖶𝖭𝖤𝖱 / 𝖠𝖣𝖬𝖨𝖭:</b>\n"
+        "👑 <b>𝖮𝖶𝖭𝖤𝖱 / 𝖠𝖣𝖨𝖨𝖭:</b>\n"
         "• /backup - Requests database `.db` file manually in chat.\n"
         "• DM Restore - Bot ke personal chat me `mitsuha_bot.db` file send karke database instantly overwrite aur restore kar sakte ho."
     )
@@ -647,10 +649,8 @@ def command_help(message):
 @bot.message_handler(func=lambda message: message.chat.type == 'private', content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
 def handle_admin_private_portal(message):
     if message.from_user.id != YOUR_USER_ID:
-        # Agar koi outsider DM karta hai (aur wo member hai), tabhi ye access block automatic work karega.
         return
 
-    # Check if Admin sent the Database Document to Restore data
     if message.content_type == 'document':
         if message.document.file_name == DB_FILE:
             try:
@@ -660,15 +660,14 @@ def handle_admin_private_portal(message):
                 with open(DB_FILE, 'wb') as new_db:
                     new_db.write(downloaded_file)
                 
-                bot.reply_to(message, "✅ <b>Database Overwritten Successfully!</b> Puraana saara metrics telemetry data (Hearts, Streaks, Achievements) successfully restore ho gaya hai! 🔥🌸", parse_mode='HTML')
+                bot.reply_to(message, "✅ <b>Database Overwritten Successfully!</b> Puraana saara data successfully restore ho gaya hai! 🔥🌸", parse_mode='HTML')
                 logging.info("Database instance manually replaced via Admin workspace upload.")
             except Exception as restoration_failure:
                 bot.reply_to(message, f"❌ Restoration error encountered: {restoration_failure}")
         else:
-            bot.reply_to(message, f"❌ File ka naam strict <code>{DB_FILE}</code> hona chahiye to pass cloud restore.", parse_mode='HTML')
+            bot.reply_to(message, f"❌ File ka naam strict <code>{DB_FILE}</code> hona chahiye.", parse_mode='HTML')
         return
 
-    # Owner normal message forwarding system to Group
     try:
         bot.copy_message(chat_id=GROUP_CHAT_ID, from_chat_id=message.chat.id, message_id=message.message_id)
         bot.reply_to(message, "✅ Announcement group me copy karke post kar di hai, boss!")
@@ -685,4 +684,6 @@ polling_thread.daemon = True
 polling_thread.start()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    # Fixes Render Crash Loop by dynamically binding the assigned PORT
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
