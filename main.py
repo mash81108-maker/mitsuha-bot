@@ -23,7 +23,7 @@ bot = telebot.TeleBot(TOKEN)
 YOUR_USER_ID = int(os.environ.get('ADMIN_ID', 0))             # Auto-filled from Render ADMIN_ID
 GROUP_CHAT_ID = int(os.environ.get('GROUP_ID', 0))           # Auto-filled from Render GROUP_ID
 DB_FILE = "mitsuha_bot.db"
-GROUP_LINK = "https://t.me/KawaiiClubGirls"                  # Verified Group Link 💖
+GROUP_LINK = "https://t.me/+pGxVLpSSERAwY2Vl"                  # Updated Private Group Link 💖
 
 # --- 🛡️ SECURITY WRAPPER (FORCE JOIN ENGINE) ---
 def check_membership(func):
@@ -493,7 +493,7 @@ def manual_backup(message):
 @check_membership
 def command_help(message):
     help_manifest = (
-        "˚₊‧꒰ა ⛩️ 🎀 <b>𝖬𝗂𝗍𝗌𝗎𝗁𝖺 𝖡𝗈𝗍 𝖧𝖾𝗅𝗉 𝖣𝖾𝗌k</b> 🌸 ໒꒱ ‧₊˚\n\n"
+        "˚₊‧꒰ა ⛩️ 🎀 <b>𝖬\u026a\u0284s\u1d1ch\u1d00 \u0299\u1d0f\u1d1b \u029d\u1d07\u029c\u1d18 \u1d05\u1d07s\u1d0b</b> 🌸 ໒꒱ ‧₊˚\n\n"
         "💖 <b>𝖬𝖤𝖬𝖡𝖤𝖱 𝖢𝖮𝖬𝖬𝖠𝖭𝖣𝖲:</b>\n"
         "• /start - Setup welcome orientation note\n"
         "• /rules - View core group framework rules\n"
@@ -503,16 +503,16 @@ def command_help(message):
         "• /rank - Show your global standing tier position\n"
         "• /activity - View private daily activity telemetry logs\n"
         "• /sweethearts - Display Top 10 most active members leaderboard\n\n"
-        "📊 <b>𝖲𝖳AW𝖨𝖲𝖳𝖨𝖢𝖲:</b>\n"
+        "📊 <b>𝖲𝖳𝖳𝖠𝖶\u026a\u0284s\u1d1b\u026a\u1d03s:</b>\n"
         "• /groupstats - Compute group traffic analytics summary\n\n"
-        "🛡️ <b>𝖬𝖮𝖣𝖤𝖱𝖳𝖨𝖮𝖭:</b>\n"
+        "🛡️ <b>𝖬𝖮𝖣𝖤𝖱𝖳\u026a\u1d0f\u0274:</b>\n"
         "• /warn - Strike a warning onto user profile\n"
         "• /warnings - View list of total active warnings\n"
         "• /clearwarns - Wipe account structural warning tallies\n"
         "• /mute | /unmute - Restrict/Restore message abilities\n"
         "• /kick - Perform transient safe user removal\n"
         "• /ban | /unban - Control full entry blacklists\n\n"
-        "👑 <b>𝖮𝖶𝖿𝖤𝖱 / 𝖠𝖣𝖬𝖨𝖭:</b>\n"
+        "👑 <b>𝖮𝖶𝖿𝖤𝖱 / 𝖠𝖣𝖬\u026a\u0274:</b>\n"
         "• /backup - Requests database `.db` file manually in chat.\n"
         "• DM Restore - Bot ke personal chat me `mitsuha_bot.db` file send karke database instantly overwrite aur restore kar sakte ho."
     )
@@ -623,7 +623,7 @@ def handle_admin_private_portal(message):
     except Exception as network_error:
         bot.reply_to(message, f"❌ Post forwarding failed: {network_error}")
 
-# --- ⏳ BACKGROUND AUTOMATED INACTIVITY ENFORCEMENT LOOP ---
+# --- 👑 BACKGROUND AUTOMATED INACTIVITY ENFORCEMENT LOOP ---
 def execute_inactivity_scan_cycle():
     while True:
         try:
@@ -688,4 +688,4 @@ polling_thread.start()
 if __name__ == '__main__':
     # Fixes Render Crash Loop by dynamically binding the assigned PORT
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port) 
