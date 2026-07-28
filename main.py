@@ -368,6 +368,7 @@ def is_user_admin(chat_id, user_id):
     except Exception:
         return False
 
+# --- UPGRADED SETLOG COMMAND ---
 @bot.message_handler(commands=['setlog'])
 def command_setlog(message):
     if message.from_user.id != YOUR_USER_ID and not is_user_admin(message.chat.id, message.from_user.id):
@@ -381,12 +382,27 @@ def command_setlog(message):
         try:
             target_log_id = int(tokens[1])
         except ValueError:
-            bot.reply_to(message, "❌ Invalid Channel ID format! Example: <code>/setlog -100123456789</code>", parse_mode='HTML')
+            bot.reply_to(
+                message, 
+                "❌ Invalid Channel ID format! Example: <code>/setlog -100123456789</code>", 
+                parse_mode='HTML'
+            )
             return
 
     set_setting("log_channel_id", target_log_id)
-    bot.reply_to(message, f"✅ <b>Audit Log Channel set ho gaya hai!</b>\n\n🆔 Channel ID: <code>{target_log_id}</code>", parse_mode='HTML')
-    log_event("🎉 <b>Audit Log Channel Connected!</b> Ab se sabhi kicks, bans, aur warnings ki updates yahan aayengi.")
+    admin_name = escape_html(message.from_user.first_name)
+
+    bot.reply_to(
+        message, 
+        f"✅ <b>Audit Log Channel Connected!</b>\n\n🆔 <b>Channel ID:</b> <code>{target_log_id}</code>", 
+        parse_mode='HTML'
+    )
+    
+    log_event(
+        f"🎉 <b>Audit Log Channel Connected!</b>\n\n"
+        f"🛡️ <b>Set By:</b> {admin_name}\n"
+        f"🆔 <b>Log Channel ID:</b> <code>{target_log_id}</code>"
+    )
 
 @bot.message_handler(commands=['warn'])
 def command_warn(message):
