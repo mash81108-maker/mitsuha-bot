@@ -1,9 +1,11 @@
-import os
-import time
-import sqlite3
+import html
 import logging
+import os
+import sqlite3
+import time
 from datetime import datetime, timedelta
 from threading import Thread
+
 from flask import Flask
 import telebot
 from telebot import types
@@ -99,10 +101,38 @@ def init_db():
     )
     """)
     
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    """)
+    
     conn.commit()
     conn.close()
 
 init_db()
+
+# --- ⚙️ SETTINGS & LOGGING HELPERS ---
+def get_setting(key, default=None):
+    conn = get_db_connection()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+def set_setting(key, value):
+    conn = get_db_connection()
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+    conn.commit()
+    conn.close()
+
+def log_event(text):
+    log_id = get_setting("log_channel_id")
+    if log_id:
+        try:
+            bot.send_message(int(log_id), f"📋 <b>MITSUHA AUDIT LOG</b>\n\n{text}", parse_mode='HTML')
+        except Exception as e:
+            logging.error(f"Logging dispatch failed: {e}")
 
 # --- 🎀 TITLES, LEVELS & ESCAPE HELPERS ---
 LEVELS = [
@@ -129,8 +159,9 @@ def get_level_info(hearts):
     return 1, "Fresh Face 🌸", 200
 
 def escape_html(text):
-    if not text: return "Angel"
-    return text.replace('<', '&lt;').replace('>', '&gt;')
+    if not text:
+        return "Angel"
+    return html.escape(text)
 
 # --- 🏆 ACHIEVEMENTS CONFIGURATION & DISPATCHER ---
 ACHIEVEMENTS_BOOK = {
@@ -337,6 +368,26 @@ def is_user_admin(chat_id, user_id):
     except Exception:
         return False
 
+@bot.message_handler(commands=['setlog'])
+def command_setlog(message):
+    if message.from_user.id != YOUR_USER_ID and not is_user_admin(message.chat.id, message.from_user.id):
+        bot.reply_to(message, "❌ Sirf Owner ya Admins hi Audit Log Channel connect kar sakte hain!")
+        return
+
+    tokens = message.text.split()
+    target_log_id = message.chat.id
+
+    if len(tokens) > 1:
+        try:
+            target_log_id = int(tokens[1])
+        except ValueError:
+            bot.reply_to(message, "❌ Invalid Channel ID format! Example: <code>/setlog -100123456789</code>", parse_mode='HTML')
+            return
+
+    set_setting("log_channel_id", target_log_id)
+    bot.reply_to(message, f"✅ <b>Audit Log Channel set ho gaya hai!</b>\n\n🆔 Channel ID: <code>{target_log_id}</code>", parse_mode='HTML')
+    log_event("🎉 <b>Audit Log Channel Connected!</b> Ab se sabhi kicks, bans, aur warnings ki updates yahan aayengi.")
+
 @bot.message_handler(commands=['warn'])
 def command_warn(message):
     if not is_user_admin(message.chat.id, message.from_user.id):
@@ -361,11 +412,13 @@ def command_warn(message):
     conn.close()
     
     bot.reply_to(message, f"⚠️ <b>{target_name}</b> ko rule breach ke liye warn kiya gaya hai! Current Warnings Status: <b>{count}/3</b>", parse_mode='HTML')
-    
+    log_event(f"⚠️ <b>WARNING ISSUED</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n📊 <b>Warnings:</b> {count}/3\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
+
     if count >= 3:
         try:
             bot.restrict_chat_member(message.chat.id, target_id, until_date=time.time() + 86400, can_send_messages=False)
             bot.send_message(message.chat.id, f"🔒 <b>{target_name}</b> ne maximum safety warning cross kar di hain. Unhein auto-mute kar diya gaya hai for 24 Hours!")
+            log_event(f"🚨 <b>AUTO-MUTE (MAX WARNS)</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n⏳ <b>Duration:</b> 24 Hours")
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Action failure details: {e}")
 
@@ -387,21 +440,25 @@ def command_clearwarns(message):
         bot.reply_to(message, "❌ Target member ke message par reply karke warnings reset karein.")
         return
     target_id = message.reply_to_message.from_user.id
+    target_name = escape_html(message.reply_to_message.from_user.first_name)
     conn = get_db_connection()
     conn.execute("DELETE FROM warnings WHERE user_id = ?", (target_id,))
     conn.commit()
     conn.close()
     bot.reply_to(message, "✅ Saari active warnings clear ho gayi hain. Account record clean ho gaya! 💕")
+    log_event(f"🧹 <b>WARNINGS CLEARED</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
 
 @bot.message_handler(commands=['mute'])
 def command_mute(message):
     if not is_user_admin(message.chat.id, message.from_user.id): return
     if not message.reply_to_message: return
     target_id = message.reply_to_message.from_user.id
+    target_name = escape_html(message.reply_to_message.from_user.first_name)
     if is_user_admin(message.chat.id, target_id): return
     try:
         bot.restrict_chat_member(message.chat.id, target_id, can_send_messages=False)
         bot.reply_to(message, "🔒 Member ko successfully mute kar diya gaya hai. Shhh! 🤫")
+        log_event(f"🤐 <b>USER MUTED</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
     except Exception as e: bot.reply_to(message, f"❌ Request denied: {e}")
 
 @bot.message_handler(commands=['unmute'])
@@ -409,9 +466,11 @@ def command_unmute(message):
     if not is_user_admin(message.chat.id, message.from_user.id): return
     if not message.reply_to_message: return
     target_id = message.reply_to_message.from_user.id
+    target_name = escape_html(message.reply_to_message.from_user.first_name)
     try:
         bot.restrict_chat_member(message.chat.id, target_id, can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
         bot.reply_to(message, "🔓 Text restrictions lifted! Aap ab group me baat kar sakti hain. 💕")
+        log_event(f"🔊 <b>USER UNMUTED</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
     except Exception as e: bot.reply_to(message, f"❌ Request denied: {e}")
 
 @bot.message_handler(commands=['kick'])
@@ -419,11 +478,13 @@ def command_kick(message):
     if not is_user_admin(message.chat.id, message.from_user.id): return
     if not message.reply_to_message: return
     target_id = message.reply_to_message.from_user.id
+    target_name = escape_html(message.reply_to_message.from_user.first_name)
     if is_user_admin(message.chat.id, target_id): return
     try:
         bot.ban_chat_member(message.chat.id, target_id)
         bot.unban_chat_member(message.chat.id, target_id)
         bot.reply_to(message, "👋 Member ko safety protocol ke tehat group se remove kar diya gaya.")
+        log_event(f"👢 <b>USER KICKED</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
     except Exception as e: bot.reply_to(message, f"❌ Request denied: {e}")
 
 @bot.message_handler(commands=['ban'])
@@ -431,10 +492,12 @@ def command_ban(message):
     if not is_user_admin(message.chat.id, message.from_user.id): return
     if not message.reply_to_message: return
     target_id = message.reply_to_message.from_user.id
+    target_name = escape_html(message.reply_to_message.from_user.first_name)
     if is_user_admin(message.chat.id, target_id): return
     try:
         bot.ban_chat_member(message.chat.id, target_id)
         bot.reply_to(message, "🚫 User blacklisted. Record permanently banned from access routes.")
+        log_event(f"🚫 <b>USER BANNED</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
     except Exception as e: bot.reply_to(message, f"❌ Request denied: {e}")
 
 @bot.message_handler(commands=['unban'])
@@ -445,8 +508,10 @@ def command_unban(message):
         bot.reply_to(message, "❌ Target numeric Telegram user ID dena zaroori hai. Example: /unban 1234567")
         return
     try:
-        bot.unban_chat_member(message.chat.id, int(tokens[1]))
+        target_id = int(tokens[1])
+        bot.unban_chat_member(message.chat.id, target_id)
         bot.reply_to(message, "✅ Restrictions removed. User can join back via link! ✨")
+        log_event(f"✅ <b>USER UNBANNED</b>\n\n👤 <b>Target ID:</b> <code>{target_id}</code>\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
     except Exception as e: bot.reply_to(message, f"❌ Request failed: {e}")
 
 # --- 👑 ADMINISTRATIVE EXCLUSIVE (MANUAL GIFT BADGES) ---
@@ -488,12 +553,21 @@ def manual_backup(message):
     else:
         bot.reply_to(message, "❌ Arey bhai, ye command sirf Master Owner ke liye safe-locked hai!")
 
-# --- 📖 GROUPED HELP ARCHITECTURE ---
+# --- 📖 DYNAMIC ROLE-BASED HELP ARCHITECTURE ---
 @bot.message_handler(commands=['help'])
 @check_membership
 def command_help(message):
-    help_manifest = (
-        "˚₊‧꒰ა ⛩️ 🎀 <b>𝖬\u026a\u0284s\u1d1ch\u1d00 \u0299\u1d0f\u1d1b \u029d\u1d07\u029c\u1d18 \u1d05\u1d07s\u1d0b</b> 🌸 ໒꒱ ‧₊˚\n\n"
+    user_id = message.from_user.id
+    target_chat_id = message.chat.id if message.chat.type != 'private' else GROUP_CHAT_ID
+
+    is_owner = (user_id == YOUR_USER_ID)
+    is_admin = is_owner or is_user_admin(target_chat_id, user_id)
+
+    # Base Header
+    help_manifest = "˚₊‧꒰ა ⛩️ 🎀 𝖬ɪʄsᴜhᴀ ʙᴏᴛ ʝᴇʜᴘ ᴅᴇsᴋ 🌸 ໒꒱ ‧₊˚\n\n"
+
+    # Member Commands (Visible to ALL)
+    help_manifest += (
         "💖 <b>𝖬𝖤𝖬𝖡𝖤𝖱 𝖢𝖮𝖬𝖬𝖠𝖭𝖣𝖲:</b>\n"
         "• /start - Setup welcome orientation note\n"
         "• /rules - View core group framework rules\n"
@@ -503,19 +577,32 @@ def command_help(message):
         "• /rank - Show your global standing tier position\n"
         "• /activity - View private daily activity telemetry logs\n"
         "• /sweethearts - Display Top 10 most active members leaderboard\n\n"
-        "📊 <b>𝖲𝖳𝖳𝖠𝖶\u026a\u0284s\u1d1b\u026a\u1d03s:</b>\n"
-        "• /groupstats - Compute group traffic analytics summary\n\n"
-        "🛡️ <b>𝖬𝖮𝖣𝖤𝖱𝖳\u026a\u1d0f\u0274:</b>\n"
-        "• /warn - Strike a warning onto user profile\n"
-        "• /warnings - View list of total active warnings\n"
-        "• /clearwarns - Wipe account structural warning tallies\n"
-        "• /mute | /unmute - Restrict/Restore message abilities\n"
-        "• /kick - Perform transient safe user removal\n"
-        "• /ban | /unban - Control full entry blacklists\n\n"
-        "👑 <b>𝖮𝖶𝖿𝖤𝖱 / 𝖠𝖣𝖬\u026a\u0274:</b>\n"
-        "• /backup - Requests database `.db` file manually in chat.\n"
-        "• DM Restore - Bot ke personal chat me `mitsuha_bot.db` file send karke database instantly overwrite aur restore kar sakte ho."
+        "📊 <b>𝖲𝖳𝖳𝖠𝖶ɪʄsᴛɪᴃs:</b>\n"
+        "• /groupstats - Compute group traffic analytics summary\n"
     )
+
+    # Moderation Commands (Visible ONLY to Admins & Owner)
+    if is_admin:
+        help_manifest += (
+            "\n🛡️ <b>𝖬𝖮𝖣𝖤𝖱𝖳ɪᴏɴ:</b>\n"
+            "• /setlog - Connect audit log channel\n"
+            "• /warn - Strike a warning onto user profile\n"
+            "• /warnings - View list of total active warnings\n"
+            "• /clearwarns - Wipe account structural warning tallies\n"
+            "• /mute | /unmute - Restrict/Restore message abilities\n"
+            "• /kick - Perform transient safe user removal\n"
+            "• /ban | /unban - Control full entry blacklists\n"
+        )
+
+    # Owner Commands (Visible ONLY to Owner)
+    if is_owner:
+        help_manifest += (
+            "\n👑 <b>𝖮𝖶𝖿𝖤𝖱 / 𝖠𝖣𝖬ɪɴ:</b>\n"
+            "• /giftbadge - Grant custom achievement badge to user\n"
+            "• /backup - Requests database `.db` file manually in chat.\n"
+            "• DM Restore - Bot ke personal chat me `mitsuha_bot.db` file send karke database instantly overwrite aur restore kar sakte ho."
+        )
+
     bot.reply_to(message, help_manifest, parse_mode='HTML')
 
 
@@ -665,6 +752,9 @@ def execute_inactivity_scan_cycle():
                         bot.unban_chat_member(GROUP_CHAT_ID, uid)
                         expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 dinon ki continuous inactivity ki wajah se group se remove kar diya gya hai."
                         bot.send_message(GROUP_CHAT_ID, expulsion_notice, parse_mode='HTML')
+                        
+                        # Audit Log Channel Notification
+                        log_event(f"👢 <b>INACTIVITY AUTO-KICK</b>\n\n👤 <b>User:</b> {name_clean} (ID: <code>{uid}</code>)\n⏳ <b>Reason:</b> Inactive for 7+ days.")
                     except Exception as ex:
                         logging.error(f"Inactivity kick failed for user {uid}: {ex}")
                         
@@ -688,4 +778,4 @@ polling_thread.start()
 if __name__ == '__main__':
     # Fixes Render Crash Loop by dynamically binding the assigned PORT
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port) 
+    app.run(host='0.0.0.0', port=port)
