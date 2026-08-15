@@ -3,10 +3,9 @@ import sqlite3
 import random
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from flask import Flask
 import telebot
-from telebot import types
 
 # ---------------------------------------------------------
 # CONFIGURATION & INITIALIZATION
@@ -29,6 +28,26 @@ def run_flask():
 # ---------------------------------------------------------
 # DATABASE ENGINE (SQLite + WAL Mode)
 # ---------------------------------------------------------
+FACTIONS = [
+    "🎀 Dreamy Dolls",
+    "👑 Pretty Princesses",
+    "🌸 Blossom Babes",
+    "💜 Lavender Ladies",
+    "💅 Slay Sisters",
+    "🦋 Velvet Vixens",
+    "🌹 Rosy Roses"
+]
+
+VALID_BADGES = [
+    "🌸 Newbie Babe",
+    "✨ Shining Star",
+    "🌟 Star Queen",
+    "🔥 Streak Lady",
+    "⚡ Unstoppable Princess",
+    "💖 Faction Angel",
+    "✨ EMPRESS"
+]
+
 def get_db():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -42,12 +61,13 @@ def init_db():
                 user_id INTEGER PRIMARY KEY,
                 chat_id INTEGER,
                 username TEXT,
-                hearts INTEGER DEFAULT 0,
                 exp INTEGER DEFAULT 0,
                 level INTEGER DEFAULT 1,
                 warns INTEGER DEFAULT 0,
                 faction TEXT DEFAULT 'Unassigned',
-                duo_partner INTEGER DEFAULT NULL,
+                msg_count INTEGER DEFAULT 0,
+                streak INTEGER DEFAULT 1,
+                last_active_date TEXT,
                 last_active TIMESTAMP
             )
         """)
@@ -65,32 +85,89 @@ init_db()
 # ---------------------------------------------------------
 # HELPER FUNCTIONS & PROGRESSION LOGIC
 # ---------------------------------------------------------
-FACTIONS = ["Solaris", "Lunaris", "Aether"]
-
 def get_or_create_user(user_id, chat_id, username):
-    now = datetime.utcnow().isoformat()
+    now_dt = datetime.utcnow()
+    now_str = now_dt.isoformat()
+    today_str = str(date.today())
+
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         row = cur.fetchone()
+        
         if not row:
             assigned_faction = random.choice(FACTIONS)
             cur.execute("""
-                INSERT INTO users (user_id, chat_id, username, last_active, faction)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, chat_id, username, now, assigned_faction))
+                INSERT INTO users (user_id, chat_id, username, last_active, last_active_date, faction, msg_count, streak)
+                VALUES (?, ?, ?, ?, ?, ?, 1, 1)
+            """, (user_id, chat_id, username or "User", now_str, today_str, assigned_faction))
             conn.commit()
+            
+            # Grant Newbie Badge Automatically
+            cur.execute("INSERT OR IGNORE INTO badges (user_id, badge_name) VALUES (?, ?)", (user_id, "🌸 Newbie Babe"))
+            conn.commit()
+            
             cur.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             row = cur.fetchone()
         else:
-            cur.execute("UPDATE users SET last_active = ?, username = ? WHERE user_id = ?", (now, username, user_id))
+            # Streak calculation
+            last_date_str = row["last_active_date"]
+            current_streak = row["streak"]
+            if last_date_str:
+                last_date = datetime.strptime(last_date_str, "%Y-%m-%d").date()
+                delta = (date.today() - last_date).days
+                if delta == 1:
+                    current_streak += 1
+                elif delta > 1:
+                    current_streak = 1
+            
+            cur.execute("""
+                UPDATE users 
+                SET last_active = ?, last_active_date = ?, username = ?, msg_count = msg_count + 1, streak = ? 
+                WHERE user_id = ?
+            """, (now_str, today_str, username or "User", current_streak, user_id))
             conn.commit()
+
         return dict(row)
+
+def check_auto_badges(user_id):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT msg_count, exp, streak FROM users WHERE user_id = ?", (user_id,))
+        user = cur.fetchone()
+        if not user:
+            return
+
+        msg_count = user["msg_count"]
+        exp = user["exp"]
+        streak = user["streak"]
+
+        badge_rules = [
+            ("🌸 Newbie Babe", True),
+            ("✨ Shining Star", msg_count >= 100),
+            ("🌟 Star Queen", msg_count >= 1000),
+            ("🔥 Streak Lady", streak >= 7),
+            ("⚡ Unstoppable Princess", streak >= 30),
+            ("💖 Faction Angel", exp >= 1000),
+            ("✨ EMPRESS", exp >= 10000)
+        ]
+
+        for badge_name, condition in badge_rules:
+            if condition:
+                cur.execute("INSERT OR IGNORE INTO badges (user_id, badge_name) VALUES (?, ?)", (user_id, badge_name))
+        conn.commit()
+
+def get_user_badges(user_id):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT badge_name FROM badges WHERE user_id = ?", (user_id,))
+        rows = cur.fetchall()
+        return [row["badge_name"] for row in rows]
 
 def add_exp(user_id, exp_amount):
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT exp, level FROM users WHERE user_id = ?", (user_id,))
+        cur.execute("SELECT exp FROM users WHERE user_id = ?", (user_id,))
         row = cur.fetchone()
         if row:
             new_exp = row["exp"] + exp_amount
@@ -99,7 +176,7 @@ def add_exp(user_id, exp_amount):
             conn.commit()
 
 # ---------------------------------------------------------
-# BACKGROUND DAEMONS (Auto-Kick & Polls)
+# BACKGROUND DAEMONS (Auto-Kick)
 # ---------------------------------------------------------
 def inactivity_daemon():
     while True:
@@ -119,27 +196,18 @@ def inactivity_daemon():
             print(f"Inactivity Error: {e}")
         time.sleep(86400)
 
-def daily_poll_daemon():
-    polls = [
-        ("Daily Check-in: How is your activity today?", ["High", "Medium", "Low"]),
-        ("Which faction is dominant today?", ["Solaris", "Lunaris", "Aether"])
-    ]
-    while True:
-        time.sleep(43200)
-        # Add automated group poll dispatch logic here as needed
-
 # ---------------------------------------------------------
-# MODERATION & USER COMMANDS
+# COMMANDS & HANDLERS
 # ---------------------------------------------------------
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     welcome_text = (
         "<b>System Online</b>\n\n"
         "<b>User Commands:</b>\n"
-        "/profile - View rank, hearts, EXP & faction\n"
-        "/heart - Give a heart to a user (reply to message)\n\n"
+        "/profile - View rank, EXP, streak, faction & badges\n\n"
         "<b>Admin Commands:</b>\n"
         "/warn | /mute | /kick | /ban | /unban | /pin\n"
+        "/addbadge [Badge Name] - Manually give an official badge\n"
         "/backup - DM full SQLite database backup"
     )
     bot.reply_to(message, welcome_text)
@@ -148,18 +216,56 @@ def send_welcome(message):
 def show_profile(message):
     user_id = message.from_user.id
     user_data = get_or_create_user(user_id, message.chat.id, message.from_user.username)
+    check_auto_badges(user_id)
+    user_badges = get_user_badges(user_id)
+    
+    badges_display = "\n".join(f"• {b}" for b in user_badges) if user_badges else "None"
+
     profile_msg = (
         f"<b>User Profile:</b> @{user_data['username']}\n"
-        f"<b>Level:</b> {user_data['level']} (EXP: {user_data['exp']})\n"
-        f"<b>Hearts:</b> {user_data['hearts']} ❤️\n"
         f"<b>Faction:</b> {user_data['faction']}\n"
+        f"<b>Level:</b> {user_data['level']} (EXP: {user_data['exp']})\n"
+        f"<b>Streak:</b> {user_data['streak']} Days 🔥\n"
+        f"<b>Messages:</b> {user_data['msg_count']}\n\n"
+        f"<b>Badges:</b>\n{badges_display}\n\n"
         f"<b>Warnings:</b> {user_data['warns']}/3"
     )
     bot.reply_to(message, profile_msg)
 
+@bot.message_handler(commands=['addbadge'])
+def add_badge(message):
+    if bot.get_chat_member(message.chat.id, message.from_user.id).status not in ['administrator', 'creator']:
+        return
+    if not message.reply_to_message:
+        bot.reply_to(message, "Reply to a user's message to grant a badge.")
+        return
+
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        valid_list = "\n".join(f"• <code>{b}</code>" for b in VALID_BADGES)
+        bot.reply_to(message, f"Provide a valid badge name!\n\n<b>Allowed Badges:</b>\n{valid_list}")
+        return
+
+    badge_name = args[1].strip()
+    if badge_name not in VALID_BADGES:
+        bot.reply_to(message, "⚠️ Invalid badge name! Select only from official system badges.")
+        return
+
+    target_id = message.reply_to_message.from_user.id
+    target_user = message.reply_to_message.from_user.username or "User"
+
+    get_or_create_user(target_id, message.chat.id, target_user)
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("INSERT OR IGNORE INTO badges (user_id, badge_name) VALUES (?, ?)", (target_id, badge_name))
+        conn.commit()
+
+    bot.reply_to(message, f"Badge <b>{badge_name}</b> successfully awarded to @{target_user}!")
+
 @bot.message_handler(commands=['warn'])
 def warn_user(message):
-    if not bot.get_chat_member(message.chat.id, message.from_user.id).status in ['administrator', 'creator']:
+    if bot.get_chat_member(message.chat.id, message.from_user.id).status not in ['administrator', 'creator']:
         return
     if not message.reply_to_message:
         bot.reply_to(message, "Reply to a user's message to warn them.")
@@ -186,7 +292,7 @@ def backup_db(message):
     try:
         with open(DB_FILE, 'rb') as doc:
             bot.send_document(message.from_user.id, doc, caption="Database Backup")
-        bot.reply_to(message, "Backup dispatched to Admin DM.")
+        bot.reply_to(message, "Backup sent to Admin DM.")
     except Exception as e:
         bot.reply_to(message, f"Backup failed: {e}")
 
@@ -198,6 +304,7 @@ def handle_all_messages(message):
     if message.chat.type in ['group', 'supergroup']:
         get_or_create_user(message.from_user.id, message.chat.id, message.from_user.username)
         add_exp(message.from_user.id, random.randint(5, 15))
+        check_auto_badges(message.from_user.id)
 
 # ---------------------------------------------------------
 # MAIN EXECUTION
@@ -205,5 +312,4 @@ def handle_all_messages(message):
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     threading.Thread(target=inactivity_daemon, daemon=True).start()
-    threading.Thread(target=daily_poll_daemon, daemon=True).start()
     bot.infinity_polling(skip_pending=True)
