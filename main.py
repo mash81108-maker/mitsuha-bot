@@ -8,7 +8,7 @@ from threading import Thread
 
 from flask import Flask
 import telebot
-from telebot import types
+from telebot import types, util
 
 # --- 🌸 LOGGING & CONFIGURATION ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,7 +18,6 @@ app = Flask(__name__)
 def home():
     return "⛩️ Mitsuha Bot is live, secured and running perfectly!"
 
-# 🔒 Reads from Render Environment Variables
 TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 bot = telebot.TeleBot(TOKEN)
 
@@ -47,13 +46,12 @@ def check_membership(func):
                     return
             except Exception as e:
                 logging.error(f"Membership check system error: {e}")
-                return func(message) # Fallback to allow DM commands if check fails
+                return func(message)
         return func(message)
     return wrapper
 
 # --- 📁 DATABASE ENGINE (RENDER SAFE MEMORY PRAGMA PATCH) ---
 def get_db_connection():
-    # Timeout and Memory journal mode prevents Render Disk I/O Lock crashes
     conn = sqlite3.connect(DB_FILE, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=MEMORY;")
@@ -75,6 +73,10 @@ def init_db():
         faction TEXT DEFAULT 'Unassigned 🌸',
         last_daily TEXT,
         join_date TEXT,
+        left_date TEXT,
+        is_in_group INTEGER DEFAULT 1,
+        duo_user_id INTEGER DEFAULT 0,
+        duo_name TEXT DEFAULT 'None',
         last_msg_time REAL DEFAULT 0
     )
     """)
@@ -136,7 +138,12 @@ def log_event(text):
         except Exception as e:
             logging.error(f"Logging dispatch failed: {e}")
 
-# --- 🎀 FACTIONS, TITLES & BADGES ---
+def escape_html(text):
+    if not text:
+        return "Angel"
+    return html.escape(text)
+
+# --- 🎀 FACTIONS & RANKS CONFIG ---
 FACTIONS = {
     "thunder": {"name": "Thunder Bolt ⚡", "badge": "⚡"},
     "tamashi": {"name": "Team Tamashi 魂", "badge": "魂"},
@@ -166,11 +173,6 @@ def get_level_info(hearts):
                 return current_level, title, 0
             return current_level, title, (LEVELS[index - 1][0] - hearts)
     return 1, "Fresh Face 🌸", 200
-
-def escape_html(text):
-    if not text:
-        return "Angel"
-    return html.escape(text)
 
 ACHIEVEMENTS_BOOK = {
     "first_msg": {"badge": "🌱", "title": "First Step", "desc": "Sent your very first message in the group!"},
@@ -203,53 +205,169 @@ def grant_achievement(user_id, achievement_id, chat_id, explicit_first_name=None
     else:
         conn.close()
 
-# --- 💖 FACTION BADGES SYSTEM ---
+# --- 👑 OWNER ONLY: /setfaction & /info COMMANDS ---
 @bot.message_handler(commands=['setfaction'])
-@check_membership
 def command_setfaction(message):
+    if message.from_user.id != YOUR_USER_ID:
+        bot.reply_to(message, "❌ Ye command sirf Owner ke liye locked hai! 👑", parse_mode='HTML')
+        return
+
     args = message.text.split()
-    if len(args) < 2:
+    target_user_id = None
+    faction_key = None
+
+    if message.reply_to_message:
+        target_user_id = message.reply_to_message.from_user.id
+        if len(args) >= 2:
+            faction_key = args[1].lower()
+    elif len(args) >= 3:
+        user_arg = args[1].replace('@', '')
+        faction_key = args[2].lower()
+        conn = get_db_connection()
+        row = conn.execute("SELECT user_id FROM users WHERE username = ? OR user_id = ?", (user_arg, user_arg)).fetchone()
+        conn.close()
+        if row:
+            target_user_id = row['user_id']
+
+    if not target_user_id or not faction_key or faction_key not in FACTIONS:
         msg = (
-            "🛡️ <b>Choose Your Faction Badge:</b>\n\n"
-            "• <code>/setfaction thunder</code> — Thunder Bolt ⚡\n"
-            "• <code>/setfaction tamashi</code> — Team Tamashi 魂\n"
-            "• <code>/setfaction badace</code> — Bad Ace Esports 🔥\n"
-            "• <code>/setfaction kawaii</code> — Kawaii Club 🌸"
+            "👑 <b>Owner Faction Assignment Tool</b>\n\n"
+            "<b>Usage:</b>\n"
+            "• Message par reply karke: <code>/setfaction thunder</code>\n"
+            "• Username/ID ke saath: <code>/setfaction @username thunder</code>\n\n"
+            "<b>Available Factions:</b>\n"
+            "• <code>thunder</code> — Thunder Bolt ⚡\n"
+            "• <code>tamashi</code> — Team Tamashi 魂\n"
+            "• <code>badace</code> — Bad Ace Esports 🔥\n"
+            "• <code>kawaii</code> — Kawaii Club 🌸"
         )
         bot.reply_to(message, msg, parse_mode='HTML')
         return
 
-    key = args[1].lower()
-    if key not in FACTIONS:
-        bot.reply_to(message, "❌ Invalid faction key! Use `/setfaction` to view options.", parse_mode='Markdown')
-        return
-
-    faction_info = FACTIONS[key]["name"]
+    faction_info = FACTIONS[faction_key]["name"]
     conn = get_db_connection()
-    conn.execute("UPDATE users SET faction = ? WHERE user_id = ?", (faction_info, message.from_user.id))
+    conn.execute("UPDATE users SET faction = ? WHERE user_id = ?", (faction_info, target_user_id))
     conn.commit()
     conn.close()
 
-    bot.reply_to(message, f"✅ <b>Faction Updated!</b> Aap ab <b>{faction_info}</b> me belong karte hain! 🎉", parse_mode='HTML')
+    bot.reply_to(message, f"✅ User (ID: <code>{target_user_id}</code>) ko <b>{faction_info}</b> me assign kar diya gaya hai! 🎉", parse_mode='HTML')
 
-# --- 📩 BOT DM & FEEDBACK ENGINE ---
-@bot.message_handler(commands=['dmadmin'])
-def command_dmadmin(message):
-    if message.chat.type != 'private':
-        bot.reply_to(message, "💬 Ye command sirf **Bot ki Private DM** me use karein!", parse_mode='Markdown')
-        return
-    
-    text = message.text.replace('/dmadmin', '').strip()
-    if not text:
-        bot.reply_to(message, "📝 Message format: `/dmadmin Aapka Query ya Feedback`", parse_mode='Markdown')
+@bot.message_handler(commands=['info'])
+def command_info(message):
+    if message.from_user.id != YOUR_USER_ID:
+        bot.reply_to(message, "❌ Ye detailed user info command sirf Owner ke liye locked hai! 👑", parse_mode='HTML')
         return
 
-    user_name = escape_html(message.from_user.first_name)
-    user_id = message.from_user.id
+    args = message.text.split()
+    target_user_id = None
+
+    if message.reply_to_message:
+        target_user_id = message.reply_to_message.from_user.id
+    elif len(args) >= 2:
+        user_arg = args[1].replace('@', '')
+        conn = get_db_connection()
+        row = conn.execute("SELECT user_id FROM users WHERE username = ? OR user_id = ?", (user_arg, user_arg)).fetchone()
+        conn.close()
+        if row:
+            target_user_id = row['user_id']
+        elif user_arg.isdigit():
+            target_user_id = int(user_arg)
+
+    if not target_user_id:
+        bot.reply_to(message, "🔍 <b>Usage:</b> Message par reply karein ya format use karein:\n<code>/info @username</code> ya <code>/info 123456789</code>", parse_mode='HTML')
+        return
+
+    conn = get_db_connection()
+    user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (target_user_id,)).fetchone()
+
+    # Check live status in Group
+    group_status = "Unknown ❓"
+    try:
+        member_obj = bot.get_chat_member(GROUP_CHAT_ID, target_user_id)
+        if member_obj.status in ['creator', 'administrator', 'member']:
+            group_status = "Currently in Group ✅"
+            conn.execute("UPDATE users SET is_in_group = 1 WHERE user_id = ?", (target_user_id,))
+        else:
+            group_status = "Left Group ❌"
+            if user_row and user_row['is_in_group'] == 1:
+                now_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+                conn.execute("UPDATE users SET is_in_group = 0, left_date = ? WHERE user_id = ?", (now_date, target_user_id))
+        conn.commit()
+    except Exception:
+        group_status = "Left / Not Found ❌"
+
+    if not user_row:
+        conn.close()
+        bot.reply_to(message, f"❌ Database me user ID <code>{target_user_id}</code> ka koi record nahi mila.", parse_mode='HTML')
+        return
+
+    warn_row = conn.execute("SELECT warn_count FROM warnings WHERE user_id = ?", (target_user_id,)).fetchone()
+    warn_count = warn_row["warn_count"] if warn_row else 0
+    conn.close()
+
+    name = escape_html(user_row['first_name'])
+    username = f"@{user_row['username']}" if user_row['username'] else "No Username"
+    joined_date = user_row['join_date'] if user_row['join_date'] else "Not Recorded"
+    left_date = user_row['left_date'] if user_row['left_date'] else "N/A (Active)"
+    duo_info = f"{user_row['duo_name']} (ID: {user_row['duo_user_id']})" if user_row['duo_user_id'] else "None"
+
+    info_card = (
+        f"🕵️‍♂️ <b>DETAILED USER AUDIT INFO (OWNER ACCESS)</b>\n\n"
+        f"👤 <b>Name:</b> {name} ({username})\n"
+        f"🆔 <b>User ID:</b> <code>{user_row['user_id']}</code>\n"
+        f"📌 <b>Group Status:</b> {group_status}\n"
+        f"📅 <b>Joined Date:</b> <code>{joined_date}</code>\n"
+        f"🚪 <b>Left Date:</b> <code>{left_date}</code>\n\n"
+        f"🛡️ <b>Faction Badge:</b> {user_row['faction']}\n"
+        f"💖 <b>Hearts Pool:</b> {user_row['hearts']}\n"
+        f"🔥 <b>Daily Streak:</b> {user_row['daily_streak']} Days\n"
+        f"💬 <b>Total Messages:</b> {user_row['msg_count']}\n"
+        f"👩‍❤️‍👨 <b>Duo Partner:</b> {duo_info}\n"
+        f"⚠️ <b>Active Warnings:</b> {warn_count}/3"
+    )
+
+    bot.reply_to(message, info_card, parse_mode='HTML')
+
+# --- 💖 FACTION LEADERBOARD & STATS COMMAND ---
+@bot.message_handler(commands=['faction'])
+@check_membership
+def command_faction(message):
+    conn = get_db_connection()
+    # Faction aggregate stats
+    faction_stats = conn.execute("""
+        SELECT faction, SUM(hearts) as total_hearts, COUNT(*) as member_count
+        FROM users
+        WHERE faction IS NOT NULL AND faction != 'Unassigned 🌸'
+        GROUP BY faction
+        ORDER BY total_hearts DESC
+    """).fetchall()
+
+    if not faction_stats:
+        bot.reply_to(message, "🌸 Abhi kisi faction me members assign nahi hue hain!", parse_mode='HTML')
+        conn.close()
+        return
+
+    top_faction = faction_stats[0]
     
-    admin_msg = f"📩 <b>NEW MEMBER DM INCOMING</b>\n\n👤 <b>From:</b> {user_name} (<code>{user_id}</code>)\n💬 <b>Message:</b> {text}"
-    bot.send_message(YOUR_USER_ID, admin_msg, parse_mode='HTML')
-    bot.reply_to(message, "✅ Aapka message Admin/Owner tak poch gaya hai! Direct reply jaldi aayega. 💕")
+    faction_card = "⚔️ <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Faction Standings & Leaderboard</b> 🏆\n\n"
+    faction_card += f"👑 <b>Current Leading Faction:</b> {top_faction['faction']} ({top_faction['total_hearts']} 💖)\n\n"
+
+    for row in faction_stats:
+        faction_name = row['faction']
+        tot_hearts = row['total_hearts']
+        m_count = row['member_count']
+
+        faction_card += f"🔰 <b>{faction_name}</b>\n"
+        faction_card += f"   • Total Hearts: <b>{tot_hearts} 💖</b>\n"
+        faction_card += f"   • Total Members: <b>{m_count}</b>\n"
+
+        # List members belonging to this faction
+        members = conn.execute("SELECT first_name, hearts FROM users WHERE faction = ? ORDER BY hearts DESC LIMIT 5", (faction_name,)).fetchall()
+        mem_list = ", ".join([f"{escape_html(m['first_name'])} ({m['hearts']}💖)" for m in members])
+        faction_card += f"   • Top Members: {mem_list if mem_list else 'None'}\n\n"
+
+    conn.close()
+    bot.reply_to(message, faction_card, parse_mode='HTML')
 
 # --- 💖 MEMBER PORTAL COMMANDS ---
 @bot.message_handler(commands=['start'])
@@ -299,12 +417,14 @@ def command_profile(message):
     user_id = message.from_user.id
     name = escape_html(message.from_user.first_name)
     conn = get_db_connection()
+    
     user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
-
     if not user_row:
-        bot.reply_to(message, "🌸 Aapka profile record abhi system me nahi hai. Pehle group me kuch message bhejein!")
-        conn.close()
-        return
+        now_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+        conn.execute("INSERT OR IGNORE INTO users (user_id, username, first_name, join_date) VALUES (?, ?, ?, ?)",
+                     (user_id, message.from_user.username, name, now_time))
+        conn.commit()
+        user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
 
     leaderboard = conn.execute("SELECT user_id FROM users ORDER BY hearts DESC").fetchall()
     rank = next((idx + 1 for idx, r in enumerate(leaderboard) if r["user_id"] == user_id), "N/A")
@@ -316,6 +436,7 @@ def command_profile(message):
 
     _, title, _ = get_level_info(user_row["hearts"])
     faction_badge = user_row["faction"] if user_row["faction"] else "Unassigned 🌸"
+    join_d = user_row["join_date"][:10] if user_row["join_date"] else "Recently"
 
     profile_card = (
         f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖯𝖱𝖮𝖥𝖨𝖖𝖤</b> 🌸 ໒꒱ ‧₊˚\n\n"
@@ -326,7 +447,7 @@ def command_profile(message):
         f"🏆 Global Rank: <b>#{rank}</b>\n"
         f"📊 Text Count: <b>{user_row['msg_count']} msgs</b>\n"
         f"🔥 Active Streak: <b>{user_row['daily_streak']} Days</b>\n"
-        f"📅 Date Joined: <code>{user_row['join_date'][:10]}</code>\n"
+        f"📅 Date Joined: <code>{join_d}</code>\n"
         f"🎖️ Badges Showcase: {badges_display}"
     )
     bot.reply_to(message, profile_card, parse_mode='HTML')
@@ -364,25 +485,48 @@ def command_activity(message):
     last_seen_date = datetime.fromtimestamp(row["last_msg_time"]).strftime("%Y-%m-%d %H:%M") if row["last_msg_time"] > 0 else "Never"
     bot.reply_to(message, f"📊 <b>Personal Activity Tracker:</b>\n\n💬 Total Messages: <b>{row['msg_count']}</b>\n🔥 Daily Activity Streak: <b>{row['daily_streak']} Days</b>\n🕒 Last Seen Active: <code>{last_seen_date}</code>", parse_mode='HTML')
 
-@bot.message_handler(commands=['sweethearts'])
+@bot.message_handler(commands=['sweethearts', 'top100'])
 @check_membership
 def command_sweethearts(message):
     conn = get_db_connection()
-    rows = conn.execute("SELECT user_id, first_name, hearts FROM users ORDER BY hearts DESC LIMIT 10").fetchall()
+    rows = conn.execute("SELECT user_id, first_name, hearts FROM users ORDER BY hearts DESC LIMIT 100").fetchall()
+    conn.close()
+
     if not rows:
         bot.reply_to(message, "🏆 Leaderboard summary records abhi khali hain!")
-        conn.close()
         return
 
-    lb_text = "🏆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Sweethearts Leaderboard</b> 🌸\n\n"
-    medals = ["🥇", "🥈", "🥉", "✨", "✨", "✨", "✨", "✨", "✨", "✨"]
-    for index, row in enumerate(rows):
-        first_name_clean = escape_html(row['first_name'])
-        lb_text += f"{medals[index]} <b>{first_name_clean}</b> — {row['hearts']} 💖\n"
-        if index == 0:
-            grant_achievement(row["user_id"], "top_1", message.chat.id, row['first_name'])
-    conn.close()
-    bot.reply_to(message, lb_text, parse_mode='HTML')
+    text = "💖 <b>Top 100 Sweethearts Leaderboard</b> 💖\n\n"
+    medal = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    for idx, r in enumerate(rows, 1):
+        m = medal.get(idx, f"<b>#{idx}</b>")
+        text += f"{m} <b>{escape_html(r['first_name'])}</b> — <code>{r['hearts']}</code> 💖\n"
+        if idx == 1:
+            grant_achievement(r["user_id"], "top_1", message.chat.id, r['first_name'])
+
+    chunks = util.smart_split(text, chars_per_string=3000)
+    for chunk in chunks:
+        bot.send_message(message.chat.id, chunk, parse_mode="HTML")
+
+# --- 📩 BOT DM & FEEDBACK ENGINE ---
+@bot.message_handler(commands=['dmadmin'])
+def command_dmadmin(message):
+    if message.chat.type != 'private':
+        bot.reply_to(message, "💬 Ye command sirf **Bot ki Private DM** me use karein!", parse_mode='Markdown')
+        return
+
+    text = message.text.replace('/dmadmin', '').strip()
+    if not text:
+        bot.reply_to(message, "📝 Message format: `/dmadmin Aapka Query ya Feedback`", parse_mode='Markdown')
+        return
+
+    user_name = escape_html(message.from_user.first_name)
+    user_id = message.from_user.id
+
+    admin_msg = f"📩 <b>NEW MEMBER DM INCOMING</b>\n\n👤 <b>From:</b> {user_name} (<code>{user_id}</code>)\n💬 <b>Message:</b> {text}"
+    bot.send_message(YOUR_USER_ID, admin_msg, parse_mode='HTML')
+    bot.reply_to(message, "✅ Aapka message Admin/Owner tak poch gaya hai! Direct reply jaldi aayega. 💕")
 
 # --- 📊 GROUP STATISTICS ENGINE ---
 @bot.message_handler(commands=['groupstats'])
@@ -542,6 +686,12 @@ def command_kick(message):
     target_name = escape_html(message.reply_to_message.from_user.first_name)
     if is_user_admin(message.chat.id, target_id): return
     try:
+        now_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        conn = get_db_connection()
+        conn.execute("UPDATE users SET is_in_group = 0, left_date = ? WHERE user_id = ?", (now_date, target_id))
+        conn.commit()
+        conn.close()
+
         bot.ban_chat_member(message.chat.id, target_id)
         bot.unban_chat_member(message.chat.id, target_id)
         bot.reply_to(message, "👋 Member ko safety protocol ke tehat group se remove kar diya gaya.")
@@ -556,6 +706,12 @@ def command_ban(message):
     target_name = escape_html(message.reply_to_message.from_user.first_name)
     if is_user_admin(message.chat.id, target_id): return
     try:
+        now_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        conn = get_db_connection()
+        conn.execute("UPDATE users SET is_in_group = 0, left_date = ? WHERE user_id = ?", (now_date, target_id))
+        conn.commit()
+        conn.close()
+
         bot.ban_chat_member(message.chat.id, target_id)
         bot.reply_to(message, "🚫 User blacklisted. Record permanently banned from access routes.")
         log_event(f"🚫 <b>USER BANNED</b>\n\n👤 <b>User:</b> {target_name} (ID: <code>{target_id}</code>)\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
@@ -575,7 +731,6 @@ def command_unban(message):
         log_event(f"✅ <b>USER UNBANNED</b>\n\n👤 <b>Target ID:</b> <code>{target_id}</code>\n🛡️ <b>Admin:</b> {escape_html(message.from_user.first_name)}")
     except Exception as e: bot.reply_to(message, f"❌ Request failed: {e}")
 
-# --- 👑 ADMINISTRATIVE EXCLUSIVE (MANUAL GIFT BADGES) ---
 @bot.message_handler(commands=['giftbadge'])
 def command_giftbadge(message):
     if message.from_user.id != YOUR_USER_ID: return
@@ -595,7 +750,6 @@ def command_giftbadge(message):
     target_name = message.reply_to_message.from_user.first_name
     grant_achievement(target_id, badge_id, message.chat.id, target_name)
 
-# --- 👑 CLEAN MANUAL BACKUP ENGINE ---
 @bot.message_handler(commands=['backup'])
 def manual_backup(message):
     if message.from_user.id == YOUR_USER_ID:
@@ -614,7 +768,7 @@ def manual_backup(message):
     else:
         bot.reply_to(message, "❌ Arey bhai, ye command sirf Master Owner ke liye safe-locked hai!")
 
-# --- 📖 DYNAMIC ROLE-BASED HELP ARCHITECTURE ---
+# --- 📖 REVISED HELP ARCHITECTURE ---
 @bot.message_handler(commands=['help'])
 @check_membership
 def command_help(message):
@@ -624,19 +778,18 @@ def command_help(message):
     is_owner = (user_id == YOUR_USER_ID)
     is_admin = is_owner or is_user_admin(target_chat_id, user_id)
 
-    help_manifest = "˚₊‧꒰ა ⛩️ 🎀 𝖬ɪʄsᴜhᴀ ʙᴏᴛ ʝᴇʜᴘ ᴅᴇsᴋ 🌸 ໒꒱ ‧₊˚\n\n"
-
-    help_manifest += (
+    help_manifest = (
+        "˚₊‧꒰ა ⛩️ 🎀 𝖬ɪʄsᴜhᴀ ʙᴏᴛ ʝᴇʜᴘ ᴅᴇsᴋ 🌸 ໒꒱ ‧₊˚\n\n"
         "💖 <b>𝖬𝖤𝖬𝖡𝖤𝖱 𝖢𝖮𝖬𝖬𝖠𝖭𝖣𝖲:</b>\n"
         "• /start - Setup welcome orientation note\n"
         "• /rules - View core group framework rules\n"
         "• /groups - Check connected network links\n"
-        "• /setfaction - Choose your team badge (Thunder/Tamashi/BadAce)\n"
+        "• /faction - View faction rankings, weekly top & member list\n"
         "• /hearts - Inspect your tracked scores & titles\n"
         "• /profile - Fetch your full user profile identity card\n"
         "• /rank - Show your global standing tier position\n"
         "• /activity - View private daily activity telemetry logs\n"
-        "• /sweethearts - Display Top 10 most active members leaderboard\n"
+        "• /sweethearts - Display Top 100 most active members leaderboard\n"
         "• /dmadmin - Bot DM se direct owner ko query bhejeyn\n\n"
         "📊 <b>𝖲𝖳𝖳𝖠𝖶ɪʄsᴛɪᴃs:</b>\n"
         "• /groupstats - Compute group traffic analytics summary\n"
@@ -657,6 +810,8 @@ def command_help(message):
     if is_owner:
         help_manifest += (
             "\n👑 <b>𝖮𝖶𝖿𝖤𝖱 / 𝖠𝖣𝖬ɪɴ:</b>\n"
+            "• /info - Check user detailed audit info (join date, status, left date, etc.)\n"
+            "• /setfaction - Assign user to a specific faction badge\n"
             "• /giftbadge - Grant custom achievement badge to user\n"
             "• /backup - Requests database .db file manually in chat.\n"
             "• DM Restore - Bot DM me mitsuha_bot.db send karke database restore kar sakte ho."
@@ -687,8 +842,8 @@ def process_incoming_activities(message):
 
         if not user_row:
             conn.execute("""
-            INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, last_msg_time)
-            VALUES (?, ?, ?, 10, 1, 1, ?, ?, ?)
+            INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, is_in_group, last_msg_time)
+            VALUES (?, ?, ?, 10, 1, 1, ?, ?, 1, ?)
             """, (user_id, username, first_name, today_date_str, now_timestamp_str, now_time))
         else:
             current_msg_count = user_row["msg_count"] + 1
@@ -716,7 +871,7 @@ def process_incoming_activities(message):
                     last_daily = today_date_str
 
             conn.execute("""
-            UPDATE users SET username = ?, first_name = ?, hearts = ?, msg_count = ?, daily_streak = ?, last_daily = ?, last_msg_time = ?
+            UPDATE users SET username = ?, first_name = ?, hearts = ?, msg_count = ?, daily_streak = ?, last_daily = ?, is_in_group = 1, last_msg_time = ?
             WHERE user_id = ?
             """, (username, first_name, current_hearts, current_msg_count, current_streak, last_daily, now_time, user_id))
 
@@ -801,9 +956,13 @@ def execute_inactivity_scan_cycle():
 
                 elif days_elapsed >= 7.0:
                     try:
+                        now_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        conn.execute("UPDATE users SET is_in_group = 0, left_date = ? WHERE user_id = ?", (now_date, uid))
+                        conn.commit()
+
                         bot.ban_chat_member(GROUP_CHAT_ID, uid)
                         bot.unban_chat_member(GROUP_CHAT_ID, uid)
-                        expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 days inactivity ki wajah se remove kar diya gaya."
+                        expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 days inactivity ki वजह se remove kar diya gaya."
                         bot.send_message(GROUP_CHAT_ID, expulsion_notice, parse_mode='HTML')
                         log_event(f"👢 <b>INACTIVITY AUTO-KICK</b>\n\n👤 <b>User:</b> {name_clean} (ID: <code>{uid}</code>)\n⏳ <b>Reason:</b> Inactive 7+ days.")
                     except Exception as ex:
