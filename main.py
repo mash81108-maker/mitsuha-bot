@@ -50,7 +50,7 @@ def check_membership(func):
         return func(message)
     return wrapper
 
-# --- 📁 DATABASE ENGINE (RENDER SAFE MEMORY PRAGMA PATCH) ---
+# --- 📁 DATABASE ENGINE (WITH AUTO-MIGRATION RECOVERY) ---
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -80,6 +80,28 @@ def init_db():
         last_msg_time REAL DEFAULT 0
     )
     """)
+
+    # AUTO MIGRATION: Purane backup file me missing columns ko automatic add karna
+    existing_cols = [col[1] for col in cursor.execute("PRAGMA table_info(users)").fetchall()]
+    columns_to_add = [
+        ("daily_streak", "INTEGER DEFAULT 0"),
+        ("faction", "TEXT DEFAULT 'Unassigned 🌸'"),
+        ("last_daily", "TEXT"),
+        ("join_date", "TEXT"),
+        ("left_date", "TEXT"),
+        ("is_in_group", "INTEGER DEFAULT 1"),
+        ("duo_user_id", "INTEGER DEFAULT 0"),
+        ("duo_name", "TEXT DEFAULT 'None'"),
+        ("last_msg_time", "REAL DEFAULT 0")
+    ]
+
+    for col_name, col_type in columns_to_add:
+        if col_name not in existing_cols:
+            try:
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                logging.info(f"Auto-Migrated Column: {col_name}")
+            except Exception as e:
+                logging.error(f"Column migration failed for {col_name}: {e}")
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS achievements (
@@ -165,6 +187,7 @@ LEVELS = [
 ]
 
 def get_level_info(hearts):
+    hearts = hearts or 0
     total_levels = len(LEVELS)
     for index, (threshold, title) in enumerate(LEVELS):
         if hearts >= threshold:
@@ -280,7 +303,6 @@ def command_info(message):
     conn = get_db_connection()
     user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (target_user_id,)).fetchone()
 
-    # Check live status in Group
     group_status = "Unknown ❓"
     try:
         member_obj = bot.get_chat_member(GROUP_CHAT_ID, target_user_id)
@@ -318,10 +340,10 @@ def command_info(message):
         f"📌 <b>Group Status:</b> {group_status}\n"
         f"📅 <b>Joined Date:</b> <code>{joined_date}</code>\n"
         f"🚪 <b>Left Date:</b> <code>{left_date}</code>\n\n"
-        f"🛡️ <b>Faction Badge:</b> {user_row['faction']}\n"
-        f"💖 <b>Hearts Pool:</b> {user_row['hearts']}\n"
-        f"🔥 <b>Daily Streak:</b> {user_row['daily_streak']} Days\n"
-        f"💬 <b>Total Messages:</b> {user_row['msg_count']}\n"
+        f"🛡️ <b>Faction Badge:</b> {user_row['faction'] or 'Unassigned 🌸'}\n"
+        f"💖 <b>Hearts Pool:</b> {user_row['hearts'] or 0}\n"
+        f"🔥 <b>Daily Streak:</b> {user_row['daily_streak'] or 0} Days\n"
+        f"💬 <b>Total Messages:</b> {user_row['msg_count'] or 0}\n"
         f"👩‍❤️‍👨 <b>Duo Partner:</b> {duo_info}\n"
         f"⚠️ <b>Active Warnings:</b> {warn_count}/3"
     )
@@ -333,7 +355,6 @@ def command_info(message):
 @check_membership
 def command_faction(message):
     conn = get_db_connection()
-    # Faction aggregate stats
     faction_stats = conn.execute("""
         SELECT faction, SUM(hearts) as total_hearts, COUNT(*) as member_count
         FROM users
@@ -361,7 +382,6 @@ def command_faction(message):
         faction_card += f"   • Total Hearts: <b>{tot_hearts} 💖</b>\n"
         faction_card += f"   • Total Members: <b>{m_count}</b>\n"
 
-        # List members belonging to this faction
         members = conn.execute("SELECT first_name, hearts FROM users WHERE faction = ? ORDER BY hearts DESC LIMIT 5", (faction_name,)).fetchall()
         mem_list = ", ".join([f"{escape_html(m['first_name'])} ({m['hearts']}💖)" for m in members])
         faction_card += f"   • Top Members: {mem_list if mem_list else 'None'}\n\n"
@@ -403,7 +423,7 @@ def command_hearts(message):
     conn.close()
 
     if row:
-        pts = row["hearts"]
+        pts = row["hearts"] or 0
         faction = row["faction"] or "Unassigned 🌸"
         _, title, needed = get_level_info(pts)
         next_str = f" Next rank ke liye <b>{needed} Hearts</b> baki hain! ✨" if needed > 0 else " Aap max tier par ho! 👑"
@@ -434,7 +454,7 @@ def command_profile(message):
     badges_display = " ".join(unlocked_badges) if unlocked_badges else "No badges unlocked yet 🌱"
     conn.close()
 
-    _, title, _ = get_level_info(user_row["hearts"])
+    _, title, _ = get_level_info(user_row["hearts"] or 0)
     faction_badge = user_row["faction"] if user_row["faction"] else "Unassigned 🌸"
     join_d = user_row["join_date"][:10] if user_row["join_date"] else "Recently"
 
@@ -442,11 +462,11 @@ def command_profile(message):
         f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖯𝖱𝖮𝖥𝖨𝖖𝖤</b> 🌸 ໒꒱ ‧₊˚\n\n"
         f"🙋‍♀️ Name: <b>{name}</b>\n"
         f"🛡️ Faction Badge: <b>{faction_badge}</b>\n"
-        f"💖 Hearts Multiplier: <b>{user_row['hearts']}</b>\n"
+        f"💖 Hearts Multiplier: <b>{user_row['hearts'] or 0}</b>\n"
         f"💮 Member Title: <b>{title}</b>\n"
         f"🏆 Global Rank: <b>#{rank}</b>\n"
-        f"📊 Text Count: <b>{user_row['msg_count']} msgs</b>\n"
-        f"🔥 Active Streak: <b>{user_row['daily_streak']} Days</b>\n"
+        f"📊 Text Count: <b>{user_row['msg_count'] or 0} msgs</b>\n"
+        f"🔥 Active Streak: <b>{user_row['daily_streak'] or 0} Days</b>\n"
         f"📅 Date Joined: <code>{join_d}</code>\n"
         f"🎖️ Badges Showcase: {badges_display}"
     )
@@ -466,9 +486,9 @@ def command_rank(message):
         bot.reply_to(message, "🌸 Rank analyze nahi ho saki. Pehle group me actively chat kijiye!")
         return
 
-    _, _, needed = get_level_info(user_data["hearts"])
+    _, _, needed = get_level_info(user_data["hearts"] or 0)
     needed_str = f"Next tier ke liye <b>{needed} hearts</b> ki zaroorat hai! ✨" if needed > 0 else "Aap peak level titles par ho! 👑"
-    bot.reply_to(message, f"🏆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Global Position</b>\n\n🎯 Aapki Rank: <b>#{rank}</b>\n💖 Total Accumulation: <b>{user_data['hearts']} Hearts</b>\n📈 {needed_str}", parse_mode='HTML')
+    bot.reply_to(message, f"🏆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Global Position</b>\n\n🎯 Aapki Rank: <b>#{rank}</b>\n💖 Total Accumulation: <b>{user_data['hearts'] or 0} Hearts</b>\n📈 {needed_str}", parse_mode='HTML')
 
 @bot.message_handler(commands=['activity'])
 @check_membership
@@ -482,8 +502,8 @@ def command_activity(message):
         bot.reply_to(message, "🌸 Aapka koi activity metrics record nahi mila.")
         return
 
-    last_seen_date = datetime.fromtimestamp(row["last_msg_time"]).strftime("%Y-%m-%d %H:%M") if row["last_msg_time"] > 0 else "Never"
-    bot.reply_to(message, f"📊 <b>Personal Activity Tracker:</b>\n\n💬 Total Messages: <b>{row['msg_count']}</b>\n🔥 Daily Activity Streak: <b>{row['daily_streak']} Days</b>\n🕒 Last Seen Active: <code>{last_seen_date}</code>", parse_mode='HTML')
+    last_seen_date = datetime.fromtimestamp(row["last_msg_time"]).strftime("%Y-%m-%d %H:%M") if (row["last_msg_time"] and row["last_msg_time"] > 0) else "Never"
+    bot.reply_to(message, f"📊 <b>Personal Activity Tracker:</b>\n\n💬 Total Messages: <b>{row['msg_count'] or 0}</b>\n🔥 Daily Activity Streak: <b>{row['daily_streak'] or 0} Days</b>\n🕒 Last Seen Active: <code>{last_seen_date}</code>", parse_mode='HTML')
 
 @bot.message_handler(commands=['sweethearts', 'top100'])
 @check_membership
@@ -501,7 +521,7 @@ def command_sweethearts(message):
 
     for idx, r in enumerate(rows, 1):
         m = medal.get(idx, f"<b>#{idx}</b>")
-        text += f"{m} <b>{escape_html(r['first_name'])}</b> — <code>{r['hearts']}</code> 💖\n"
+        text += f"{m} <b>{escape_html(r['first_name'])}</b> — <code>{r['hearts'] or 0}</code> 💖\n"
         if idx == 1:
             grant_achievement(r["user_id"], "top_1", message.chat.id, r['first_name'])
 
@@ -846,9 +866,9 @@ def process_incoming_activities(message):
             VALUES (?, ?, ?, 10, 1, 1, ?, ?, 1, ?)
             """, (user_id, username, first_name, today_date_str, now_timestamp_str, now_time))
         else:
-            current_msg_count = user_row["msg_count"] + 1
-            current_hearts = user_row["hearts"] + 10
-            current_streak = user_row["daily_streak"]
+            current_msg_count = (user_row["msg_count"] or 0) + 1
+            current_hearts = (user_row["hearts"] or 0) + 10
+            current_streak = user_row["daily_streak"] or 1
             last_daily = user_row["last_daily"]
 
             if not last_daily:
@@ -907,8 +927,11 @@ def handle_admin_private_portal(message):
                 with open(DB_FILE, 'wb') as new_db:
                     new_db.write(downloaded_file)
 
-                bot.reply_to(message, "✅ <b>Database Overwritten Successfully!</b> Data restore ho gaya hai! 🔥🌸", parse_mode='HTML')
-                logging.info("Database instance manually replaced via Admin workspace upload.")
+                # Overwrite hone ke baad auto migration run karna
+                init_db()
+
+                bot.reply_to(message, "✅ <b>Database Overwritten & Auto-Migrated Successfully!</b> Ab saare commands chalenge! 🔥🌸", parse_mode='HTML')
+                logging.info("Database instance manually replaced and migrated via Admin workspace upload.")
             except Exception as restoration_failure:
                 bot.reply_to(message, f"❌ Restoration error encountered: {restoration_failure}")
         else:
@@ -939,7 +962,7 @@ def execute_inactivity_scan_cycle():
                 username_raw = profile["username"]
                 last_active_epoch = profile["last_msg_time"]
 
-                if last_active_epoch == 0: continue
+                if not last_active_epoch or last_active_epoch == 0: continue
                 days_elapsed = (now_epoch - last_active_epoch) / 86400
 
                 if is_user_admin(GROUP_CHAT_ID, uid): continue
