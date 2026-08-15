@@ -26,7 +26,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 # ---------------------------------------------------------
-# DATABASE ENGINE (SQLite + WAL Mode)
+# DATABASE ENGINE & LIST CONFIGURATION
 # ---------------------------------------------------------
 FACTIONS = [
     "🎀 Dreamy Dolls",
@@ -103,14 +103,13 @@ def get_or_create_user(user_id, chat_id, username):
             """, (user_id, chat_id, username or "User", now_str, today_str, assigned_faction))
             conn.commit()
             
-            # Grant Newbie Badge Automatically
+            # Auto Grant Newbie Badge
             cur.execute("INSERT OR IGNORE INTO badges (user_id, badge_name) VALUES (?, ?)", (user_id, "🌸 Newbie Babe"))
             conn.commit()
             
             cur.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             row = cur.fetchone()
         else:
-            # Streak calculation
             last_date_str = row["last_active_date"]
             current_streak = row["streak"]
             if last_date_str:
@@ -207,8 +206,9 @@ def send_welcome(message):
         "/profile - View rank, EXP, streak, faction & badges\n\n"
         "<b>Admin Commands:</b>\n"
         "/warn | /mute | /kick | /ban | /unban | /pin\n"
-        "/addbadge [Badge Name] - Manually give an official badge\n"
-        "/backup - DM full SQLite database backup"
+        "/addbadge [Badge Name] - Give official badge to user (reply to message)\n"
+        "/backup - DM full SQLite database backup\n"
+        "/restore - Restore database (reply to `.db` backup file)"
     )
     bot.reply_to(message, welcome_text)
 
@@ -295,6 +295,42 @@ def backup_db(message):
         bot.reply_to(message, "Backup sent to Admin DM.")
     except Exception as e:
         bot.reply_to(message, f"Backup failed: {e}")
+
+@bot.message_handler(commands=['restore'])
+def restore_db(message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    if not message.reply_to_message or not message.reply_to_message.document:
+        bot.reply_to(message, "⚠️ Reply to a backup `.db` file with `/restore` to reload data.")
+        return
+
+    doc = message.reply_to_message.document
+    if not doc.file_name.endswith('.db'):
+        bot.reply_to(message, "⚠️ Only `.db` backup files are supported!")
+        return
+
+    try:
+        file_info = bot.get_file(doc.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+
+        # Clear active WAL temporary files to prevent database overwrite lock
+        for ext in ["-wal", "-shm"]:
+            wal_path = DB_FILE + ext
+            if os.path.exists(wal_path):
+                try:
+                    os.remove(wal_path)
+                except Exception:
+                    pass
+
+        # Overwrite SQLite file
+        with open(DB_FILE, 'wb') as f:
+            f.write(downloaded_file)
+
+        init_db()
+        bot.reply_to(message, "✅ Database successfully restored!")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Restore failed: {e}")
 
 # ---------------------------------------------------------
 # GENERAL MESSAGE TRACKER
