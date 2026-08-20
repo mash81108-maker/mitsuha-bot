@@ -167,10 +167,10 @@ def escape_html(text):
 
 # --- 🎀 FACTIONS & RANKS CONFIG ---
 FACTIONS = {
-    "thunder": {"name": "Thunder Bolt ⚡", "badge": "⚡"},
-    "tamashi": {"name": "Team Tamashi 魂", "badge": "魂"},
-    "badace": {"name": "Bad Ace Esports 🔥", "badge": "🔥"},
-    "kawaii": {"name": "Kawaii Club 🌸", "badge": "🌸"}
+    "rosy": {"name": "Rosy Roses 🌹", "badge": "🌹"},
+    "pretty": {"name": "Pretty Princesses 👑", "badge": "👑"},
+    "lovely": {"name": "Lovely Ladies 💖", "badge": "💖"},
+    "glowy": {"name": "Glowy Gals ✨", "badge": "✨"}
 }
 
 LEVELS = [
@@ -256,13 +256,13 @@ def command_setfaction(message):
         msg = (
             "👑 <b>Owner Faction Assignment Tool</b>\n\n"
             "<b>Usage:</b>\n"
-            "• Message par reply karke: <code>/setfaction thunder</code>\n"
-            "• Username/ID ke saath: <code>/setfaction @username thunder</code>\n\n"
+            "• Message par reply karke: <code>/setfaction rosy</code>\n"
+            "• Username/ID ke saath: <code>/setfaction @username rosy</code>\n\n"
             "<b>Available Factions:</b>\n"
-            "• <code>thunder</code> — Thunder Bolt ⚡\n"
-            "• <code>tamashi</code> — Team Tamashi 魂\n"
-            "• <code>badace</code> — Bad Ace Esports 🔥\n"
-            "• <code>kawaii</code> — Kawaii Club 🌸"
+            "• <code>rosy</code> — Rosy Roses 🌹\n"
+            "• <code>pretty</code> — Pretty Princesses 👑\n"
+            "• <code>lovely</code> — Lovely Ladies 💖\n"
+            "• <code>glowy</code> — Glowy Gals ✨"
         )
         bot.reply_to(message, msg, parse_mode='HTML')
         return
