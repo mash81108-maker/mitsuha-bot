@@ -68,7 +68,10 @@ def init_db():
         username TEXT,
         first_name TEXT,
         hearts INTEGER DEFAULT 0,
+        weekly_hearts INTEGER DEFAULT 0,
+        monthly_hearts INTEGER DEFAULT 0,
         msg_count INTEGER DEFAULT 0,
+        msg_counter INTEGER DEFAULT 0,
         daily_streak INTEGER DEFAULT 0,
         faction TEXT DEFAULT 'Unassigned 🌸',
         last_daily TEXT,
@@ -81,9 +84,12 @@ def init_db():
     )
     """)
 
-    # AUTO MIGRATION: Purane backup file me missing columns ko automatic add karna
+    # AUTO MIGRATION
     existing_cols = [col[1] for col in cursor.execute("PRAGMA table_info(users)").fetchall()]
     columns_to_add = [
+        ("weekly_hearts", "INTEGER DEFAULT 0"),
+        ("monthly_hearts", "INTEGER DEFAULT 0"),
+        ("msg_counter", "INTEGER DEFAULT 0"),
         ("daily_streak", "INTEGER DEFAULT 0"),
         ("faction", "TEXT DEFAULT 'Unassigned 🌸'"),
         ("last_daily", "TEXT"),
@@ -165,6 +171,12 @@ def escape_html(text):
         return "Angel"
     return html.escape(text)
 
+def get_user_mention(user_id, username, first_name):
+    name = escape_html(first_name)
+    if username:
+        return f"@{username}"
+    return f'<a href="tg://user?id={user_id}">{name}</a>'
+
 # --- 🎀 FACTIONS & RANKS CONFIG ---
 FACTIONS = {
     "rosy": {"name": "Rosy Roses 🌹", "badge": "🌹"},
@@ -228,7 +240,7 @@ def grant_achievement(user_id, achievement_id, chat_id, explicit_first_name=None
     else:
         conn.close()
 
-# --- 👑 OWNER ONLY: /setfaction & /info COMMANDS ---
+# --- 👑 OWNER ONLY COMMANDS ---
 @bot.message_handler(commands=['setfaction'])
 def command_setfaction(message):
     if message.from_user.id != YOUR_USER_ID:
@@ -256,8 +268,8 @@ def command_setfaction(message):
         msg = (
             "👑 <b>Owner Faction Assignment Tool</b>\n\n"
             "<b>Usage:</b>\n"
-            "• Message par reply karke: <code>/setfaction rosy</code>\n"
-            "• Username/ID ke saath: <code>/setfaction @username rosy</code>\n\n"
+            "• Reply: <code>/setfaction rosy</code>\n"
+            "• Username/ID: <code>/setfaction @username rosy</code>\n\n"
             "<b>Available Factions:</b>\n"
             "• <code>rosy</code> — Rosy Roses 🌹\n"
             "• <code>pretty</code> — Pretty Princesses 👑\n"
@@ -297,7 +309,7 @@ def command_info(message):
             target_user_id = int(user_arg)
 
     if not target_user_id:
-        bot.reply_to(message, "🔍 <b>Usage:</b> Message par reply karein ya format use karein:\n<code>/info @username</code> ya <code>/info 123456789</code>", parse_mode='HTML')
+        bot.reply_to(message, "🔍 <b>Usage:</b> <code>/info @username</code> ya reply karein.", parse_mode='HTML')
         return
 
     conn = get_db_connection()
@@ -331,7 +343,6 @@ def command_info(message):
     username = f"@{user_row['username']}" if user_row['username'] else "No Username"
     joined_date = user_row['join_date'] if user_row['join_date'] else "Not Recorded"
     left_date = user_row['left_date'] if user_row['left_date'] else "N/A (Active)"
-    duo_info = f"{user_row['duo_name']} (ID: {user_row['duo_user_id']})" if user_row['duo_user_id'] else "None"
 
     info_card = (
         f"🕵️‍♂️ <b>DETAILED USER AUDIT INFO (OWNER ACCESS)</b>\n\n"
@@ -341,10 +352,10 @@ def command_info(message):
         f"📅 <b>Joined Date:</b> <code>{joined_date}</code>\n"
         f"🚪 <b>Left Date:</b> <code>{left_date}</code>\n\n"
         f"🛡️ <b>Faction Badge:</b> {user_row['faction'] or 'Unassigned 🌸'}\n"
-        f"💖 <b>Hearts Pool:</b> {user_row['hearts'] or 0}\n"
+        f"💖 <b>Weekly Hearts:</b> {user_row['weekly_hearts'] or 0}\n"
+        f"💖 <b>Total Hearts:</b> {user_row['hearts'] or 0}\n"
         f"🔥 <b>Daily Streak:</b> {user_row['daily_streak'] or 0} Days\n"
         f"💬 <b>Total Messages:</b> {user_row['msg_count'] or 0}\n"
-        f"👩‍❤️‍👨 <b>Duo Partner:</b> {duo_info}\n"
         f"⚠️ <b>Active Warnings:</b> {warn_count}/3"
     )
 
@@ -355,22 +366,23 @@ def command_info(message):
 @check_membership
 def command_faction(message):
     conn = get_db_connection()
+    # SIRF ACTIVE MEMBERS (is_in_group = 1) KI WEEKLY HEARTS COUNT KI JAYEGI
     faction_stats = conn.execute("""
-        SELECT faction, SUM(hearts) as total_hearts, COUNT(*) as member_count
+        SELECT faction, SUM(weekly_hearts) as total_hearts, COUNT(*) as member_count
         FROM users
-        WHERE faction IS NOT NULL AND faction != 'Unassigned 🌸'
+        WHERE faction IS NOT NULL AND faction != 'Unassigned 🌸' AND is_in_group = 1
         GROUP BY faction
         ORDER BY total_hearts DESC
     """).fetchall()
 
     if not faction_stats:
-        bot.reply_to(message, "🌸 Abhi kisi faction me members assign nahi hue hain!", parse_mode='HTML')
+        bot.reply_to(message, "🌸 Abhi kisi active member ko faction me points nahi mile hain!", parse_mode='HTML')
         conn.close()
         return
 
     top_faction = faction_stats[0]
     
-    faction_card = "⚔️ <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Faction Standings & Leaderboard</b> 🏆\n\n"
+    faction_card = "⚔️ <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Weekly Faction Standings</b> 🏆\n\n"
     faction_card += f"👑 <b>Current Leading Faction:</b> {top_faction['faction']} ({top_faction['total_hearts']} 💖)\n\n"
 
     for row in faction_stats:
@@ -379,12 +391,17 @@ def command_faction(message):
         m_count = row['member_count']
 
         faction_card += f"🔰 <b>{faction_name}</b>\n"
-        faction_card += f"   • Total Hearts: <b>{tot_hearts} 💖</b>\n"
-        faction_card += f"   • Total Members: <b>{m_count}</b>\n"
+        faction_card += f"   • Weekly Hearts: <b>{tot_hearts} 💖</b>\n"
+        faction_card += f"   • Active Members: <b>{m_count}</b>\n"
 
-        members = conn.execute("SELECT first_name, hearts FROM users WHERE faction = ? ORDER BY hearts DESC LIMIT 5", (faction_name,)).fetchall()
-        mem_list = ", ".join([f"{escape_html(m['first_name'])} ({m['hearts']}💖)" for m in members])
-        faction_card += f"   • Top Members: {mem_list if mem_list else 'None'}\n\n"
+        members = conn.execute("""
+            SELECT first_name, weekly_hearts FROM users 
+            WHERE faction = ? AND is_in_group = 1 
+            ORDER BY weekly_hearts DESC LIMIT 5
+        """, (faction_name,)).fetchall()
+        
+        mem_list = ", ".join([f"{escape_html(m['first_name'])} ({m['weekly_hearts']}💖)" for m in members])
+        faction_card += f"   • Top Active Members: {mem_list if mem_list else 'None'}\n\n"
 
     conn.close()
     bot.reply_to(message, faction_card, parse_mode='HTML')
@@ -419,15 +436,16 @@ def command_hearts(message):
     user_id = message.from_user.id
     name = escape_html(message.from_user.first_name)
     conn = get_db_connection()
-    row = conn.execute("SELECT hearts, faction FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    row = conn.execute("SELECT hearts, weekly_hearts, faction FROM users WHERE user_id = ?", (user_id,)).fetchone()
     conn.close()
 
     if row:
         pts = row["hearts"] or 0
+        w_pts = row["weekly_hearts"] or 0
         faction = row["faction"] or "Unassigned 🌸"
         _, title, needed = get_level_info(pts)
         next_str = f" Next rank ke liye <b>{needed} Hearts</b> baki hain! ✨" if needed > 0 else " Aap max tier par ho! 👑"
-        bot.reply_to(message, f"🌸 <b>{name}</b> ({faction}): <b>{pts} Hearts 💖</b>\n📝 Custom Title: <b>{title}</b>\n{next_str}", parse_mode='HTML')
+        bot.reply_to(message, f"🌸 <b>{name}</b> ({faction}):\n💖 Weekly Hearts: <b>{w_pts} 💖</b>\n🏆 All-Time Hearts: <b>{pts} 💖</b>\n📝 Title: <b>{title}</b>\n{next_str}", parse_mode='HTML')
     else:
         bot.reply_to(message, f"🌸 <b>{name}</b>, abhi aapke paas 0 Hearts hain. Group me chat shuru karo! 💕", parse_mode='HTML')
 
@@ -446,11 +464,25 @@ def command_profile(message):
         conn.commit()
         user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
 
-    leaderboard = conn.execute("SELECT user_id FROM users ORDER BY hearts DESC").fetchall()
+    # Rank calculated only among active members
+    leaderboard = conn.execute("SELECT user_id FROM users WHERE is_in_group = 1 ORDER BY hearts DESC").fetchall()
     rank = next((idx + 1 for idx, r in enumerate(leaderboard) if r["user_id"] == user_id), "N/A")
 
     ach_rows = conn.execute("SELECT achievement_id FROM achievements WHERE user_id = ?", (user_id,)).fetchall()
     unlocked_badges = [ACHIEVEMENTS_BOOK[r["achievement_id"]]["badge"] for r in ach_rows if r["achievement_id"] in ACHIEVEMENTS_BOOK]
+    
+    # ROTATING DYNAMIC BADGES (Weekly/Monthly/Faction Winner)
+    weekly_top_user = get_setting("weekly_top_user_id")
+    monthly_top_user = get_setting("monthly_top_user_id")
+    top_faction_name = get_setting("weekly_top_faction_name")
+
+    if str(user_id) == str(weekly_top_user):
+        unlocked_badges.append("🎆")
+    if str(user_id) == str(monthly_top_user):
+        unlocked_badges.append("♨️")
+    if user_row["faction"] and user_row["faction"] == top_faction_name:
+        unlocked_badges.append("⛩️")
+
     badges_display = " ".join(unlocked_badges) if unlocked_badges else "No badges unlocked yet 🌱"
     conn.close()
 
@@ -462,7 +494,8 @@ def command_profile(message):
         f"˚₊‧꒰ა ⛩️ 🎀 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 𝖯𝖱𝖮𝖥𝖨𝖖𝖤</b> 🌸 ໒꒱ ‧₊˚\n\n"
         f"🙋‍♀️ Name: <b>{name}</b>\n"
         f"🛡️ Faction Badge: <b>{faction_badge}</b>\n"
-        f"💖 Hearts Multiplier: <b>{user_row['hearts'] or 0}</b>\n"
+        f"💖 Weekly Hearts: <b>{user_row['weekly_hearts'] or 0} 💖</b>\n"
+        f"🏆 All-Time Hearts: <b>{user_row['hearts'] or 0} 💖</b>\n"
         f"💮 Member Title: <b>{title}</b>\n"
         f"🏆 Global Rank: <b>#{rank}</b>\n"
         f"📊 Text Count: <b>{user_row['msg_count'] or 0} msgs</b>\n"
@@ -477,7 +510,7 @@ def command_profile(message):
 def command_rank(message):
     user_id = message.from_user.id
     conn = get_db_connection()
-    leaderboard = conn.execute("SELECT user_id, hearts FROM users ORDER BY hearts DESC").fetchall()
+    leaderboard = conn.execute("SELECT user_id, hearts FROM users WHERE is_in_group = 1 ORDER BY hearts DESC").fetchall()
     rank = next((idx + 1 for idx, r in enumerate(leaderboard) if r["user_id"] == user_id), 0)
     user_data = conn.execute("SELECT hearts FROM users WHERE user_id = ?", (user_id,)).fetchone()
     conn.close()
@@ -509,19 +542,20 @@ def command_activity(message):
 @check_membership
 def command_sweethearts(message):
     conn = get_db_connection()
-    rows = conn.execute("SELECT user_id, first_name, hearts FROM users ORDER BY hearts DESC LIMIT 100").fetchall()
+    # ONLY ACTIVE GROUP MEMBERS
+    rows = conn.execute("SELECT user_id, first_name, weekly_hearts FROM users WHERE is_in_group = 1 ORDER BY weekly_hearts DESC LIMIT 100").fetchall()
     conn.close()
 
     if not rows:
-        bot.reply_to(message, "🏆 Leaderboard summary records abhi khali hain!")
+        bot.reply_to(message, "🏆 Active members leaderboard summary records abhi khali hain!")
         return
 
-    text = "💖 <b>Top 100 Sweethearts Leaderboard</b> 💖\n\n"
+    text = "💖 <b>Top Active Sweethearts Leaderboard (Weekly)</b> 💖\n\n"
     medal = {1: "🥇", 2: "🥈", 3: "🥉"}
 
     for idx, r in enumerate(rows, 1):
         m = medal.get(idx, f"<b>#{idx}</b>")
-        text += f"{m} <b>{escape_html(r['first_name'])}</b> — <code>{r['hearts'] or 0}</code> 💖\n"
+        text += f"{m} <b>{escape_html(r['first_name'])}</b> — <code>{r['weekly_hearts'] or 0}</code> 💖\n"
         if idx == 1:
             grant_achievement(r["user_id"], "top_1", message.chat.id, r['first_name'])
 
@@ -557,27 +591,27 @@ def command_groupstats(message):
     weekly_stamp = (now_date - timedelta(days=7)).strftime("%Y-%m-%d")
 
     conn = get_db_connection()
-    total_members = conn.execute("SELECT COUNT() FROM users").fetchone()[0]
-    total_hearts = conn.execute("SELECT SUM(hearts) FROM users").fetchone()[0] or 0
-    total_messages = conn.execute("SELECT SUM(msg_count) FROM users").fetchone()[0] or 0
+    total_members = conn.execute("SELECT COUNT() FROM users WHERE is_in_group = 1").fetchone()[0]
+    total_hearts = conn.execute("SELECT SUM(hearts) FROM users WHERE is_in_group = 1").fetchone()[0] or 0
+    total_messages = conn.execute("SELECT SUM(msg_count) FROM users WHERE is_in_group = 1").fetchone()[0] or 0
     today_msgs = conn.execute("SELECT COUNT() FROM message_log WHERE timestamp LIKE ?", (f"{today_stamp}%",)).fetchone()[0]
     weekly_msgs = conn.execute("SELECT COUNT() FROM message_log WHERE timestamp >= ?", (weekly_stamp,)).fetchone()[0]
     active_members_7d = conn.execute("SELECT COUNT(DISTINCT user_id) FROM message_log WHERE timestamp >= ?", (weekly_stamp,)).fetchone()[0]
     total_achievements = conn.execute("SELECT COUNT() FROM achievements").fetchone()[0]
 
-    top_user = conn.execute("SELECT first_name, hearts FROM users ORDER BY hearts DESC LIMIT 1").fetchone()
-    top_member_summary = f"{escape_html(top_user['first_name'])} ({top_user['hearts']} 💖)" if top_user else "None"
+    top_user = conn.execute("SELECT first_name, weekly_hearts FROM users WHERE is_in_group = 1 ORDER BY weekly_hearts DESC LIMIT 1").fetchone()
+    top_member_summary = f"{escape_html(top_user['first_name'])} ({top_user['weekly_hearts']} 💖)" if top_user else "None"
     conn.close()
 
     stats_msg = (
         f"📊 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Analytics Metrics Card</b> 🌸\n\n"
-        f"🎀 Total Profiles Tracked: <b>{total_members}</b>\n"
+        f"🎀 Active Group Members: <b>{total_members}</b>\n"
         f"⚡ Active Members (7 Days): <b>{active_members_7d}</b>\n"
         f"💬 Global Messages Pool: <b>{total_messages} msgs</b>\n"
         f"💖 Cumulative Hearts distributed: <b>{total_hearts} 💖</b>\n"
         f"📅 Today's Live Flow: <b>{today_msgs} messages</b>\n"
         f"📈 7-Day Traffic Velocity: <b>{weekly_msgs} texts</b>\n"
-        f"👑 Reigning Top Member: <b>{top_member_summary}</b>\n"
+        f"👑 Current Top Active Member: <b>{top_member_summary}</b>\n"
         f"🎖️ Total Milestone Badges Awarded: <b>{total_achievements}</b>"
     )
     bot.reply_to(message, stats_msg, parse_mode='HTML')
@@ -804,7 +838,7 @@ def command_help(message):
         "• /start - Setup welcome orientation note\n"
         "• /rules - View core group framework rules\n"
         "• /groups - Check connected network links\n"
-        "• /faction - View faction rankings, weekly top & member list\n"
+        "• /faction - View faction rankings & weekly standings\n"
         "• /hearts - Inspect your tracked scores & titles\n"
         "• /profile - Fetch your full user profile identity card\n"
         "• /rank - Show your global standing tier position\n"
@@ -830,16 +864,15 @@ def command_help(message):
     if is_owner:
         help_manifest += (
             "\n👑 <b>𝖮𝖶𝖿𝖤𝖱 / 𝖠𝖣𝖬ɪɴ:</b>\n"
-            "• /info - Check user detailed audit info (join date, status, left date, etc.)\n"
+            "• /info - Check user detailed audit info\n"
             "• /setfaction - Assign user to a specific faction badge\n"
             "• /giftbadge - Grant custom achievement badge to user\n"
             "• /backup - Requests database .db file manually in chat.\n"
-            "• DM Restore - Bot DM me mitsuha_bot.db send karke database restore kar sakte ho."
         )
 
     bot.reply_to(message, help_manifest, parse_mode='HTML')
 
-# --- 🚀 AUTOMATIC CHAT ROUTINES & TRACKER ---
+# --- 🚀 AUTOMATIC CHAT ROUTINES & TRACKER (2 MSGS = 5 HEARTS) ---
 @bot.message_handler(func=lambda message: message.chat.type in ['group', 'supergroup'] and not (message.text and message.text.startswith('/')), content_types=['text', 'photo', 'sticker', 'animation', 'video', 'document'])
 def process_incoming_activities(message):
     if message.from_user.is_bot: return
@@ -855,19 +888,28 @@ def process_incoming_activities(message):
         conn = get_db_connection()
         user_row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
 
-        current_msg_count = 1
-        current_hearts = 10
-        current_streak = 1
-        last_daily = today_date_str
-
         if not user_row:
             conn.execute("""
-            INSERT INTO users (user_id, username, first_name, hearts, msg_count, daily_streak, last_daily, join_date, is_in_group, last_msg_time)
-            VALUES (?, ?, ?, 10, 1, 1, ?, ?, 1, ?)
+            INSERT INTO users (user_id, username, first_name, hearts, weekly_hearts, monthly_hearts, msg_count, msg_counter, daily_streak, last_daily, join_date, is_in_group, last_msg_time)
+            VALUES (?, ?, ?, 0, 0, 0, 1, 1, 1, ?, ?, 1, ?)
             """, (user_id, username, first_name, today_date_str, now_timestamp_str, now_time))
+            current_msg_count = 1
+            current_hearts = 0
+            current_streak = 1
         else:
             current_msg_count = (user_row["msg_count"] or 0) + 1
-            current_hearts = (user_row["hearts"] or 0) + 10
+            current_counter = (user_row["msg_counter"] or 0) + 1
+            current_hearts = user_row["hearts"] or 0
+            weekly_hearts = user_row["weekly_hearts"] or 0
+            monthly_hearts = user_row["monthly_hearts"] or 0
+            
+            # HAR 2 MESSAGES PAR 5 HEARTS EARN HOTE HAIN
+            if current_counter >= 2:
+                current_hearts += 5
+                weekly_hearts += 5
+                monthly_hearts += 5
+                current_counter = 0
+
             current_streak = user_row["daily_streak"] or 1
             last_daily = user_row["last_daily"]
 
@@ -891,9 +933,9 @@ def process_incoming_activities(message):
                     last_daily = today_date_str
 
             conn.execute("""
-            UPDATE users SET username = ?, first_name = ?, hearts = ?, msg_count = ?, daily_streak = ?, last_daily = ?, is_in_group = 1, last_msg_time = ?
+            UPDATE users SET username = ?, first_name = ?, hearts = ?, weekly_hearts = ?, monthly_hearts = ?, msg_count = ?, msg_counter = ?, daily_streak = ?, last_daily = ?, is_in_group = 1, last_msg_time = ?
             WHERE user_id = ?
-            """, (username, first_name, current_hearts, current_msg_count, current_streak, last_daily, now_time, user_id))
+            """, (username, first_name, current_hearts, weekly_hearts, monthly_hearts, current_msg_count, current_counter, current_streak, last_daily, now_time, user_id))
 
         conn.execute("INSERT INTO message_log (user_id, timestamp) VALUES (?, ?)", (user_id, now_timestamp_str))
         conn.commit()
@@ -927,11 +969,9 @@ def handle_admin_private_portal(message):
                 with open(DB_FILE, 'wb') as new_db:
                     new_db.write(downloaded_file)
 
-                # Overwrite hone ke baad auto migration run karna
                 init_db()
-
-                bot.reply_to(message, "✅ <b>Database Overwritten & Auto-Migrated Successfully!</b> Ab saare commands chalenge! 🔥🌸", parse_mode='HTML')
-                logging.info("Database instance manually replaced and migrated via Admin workspace upload.")
+                bot.reply_to(message, "✅ <b>Database Overwritten & Auto-Migrated Successfully!</b>", parse_mode='HTML')
+                logging.info("Database instance manually replaced.")
             except Exception as restoration_failure:
                 bot.reply_to(message, f"❌ Restoration error encountered: {restoration_failure}")
         else:
@@ -944,6 +984,136 @@ def handle_admin_private_portal(message):
     except Exception as network_error:
         bot.reply_to(message, f"❌ Post forwarding failed: {network_error}")
 
+# --- 👑 AUTOMATED CRON ENGINE (DAILY 7:00 PM, WEEKLY & MONTHLY RESET) ---
+def execute_automated_scheduler_cron():
+    while True:
+        try:
+            time.sleep(30)
+            now = datetime.now()
+            today_stamp = now.strftime("%Y-%m-%d")
+
+            # 1. DAILY 7:00 PM TOP 10 ACTIVE MEMBERS MESSAGE (19:00 IST)
+            if now.hour == 19 and now.minute == 0:
+                last_daily_report = get_setting("last_daily_report")
+                if last_daily_report != today_stamp:
+                    set_setting("last_daily_report", today_stamp)
+                    
+                    conn = get_db_connection()
+                    top_10 = conn.execute("""
+                        SELECT m.user_id, u.username, u.first_name, COUNT(m.id) as daily_msgs
+                        FROM message_log m
+                        JOIN users u ON m.user_id = u.user_id
+                        WHERE m.timestamp LIKE ? AND u.is_in_group = 1
+                        GROUP BY m.user_id
+                        ORDER BY daily_msgs DESC LIMIT 10
+                    """, (f"{today_stamp}%",)).fetchall()
+                    conn.close()
+
+                    if top_10:
+                        report_card = f"🔥 <b>DAILY TOP 10 ACTIVE MEMBERS ({today_stamp})</b> 🔥\n\n"
+                        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+                        for idx, row in enumerate(top_10, 1):
+                            m = medals.get(idx, f"<b>#{idx}</b>")
+                            user_tag = get_user_mention(row['user_id'], row['username'], row['first_name'])
+                            report_card += f"{m} {user_tag} — <b>{row['daily_msgs']} messages</b>\n"
+                        
+                        report_card += "\nKeep chatting and bringing cozy vibes! 💕"
+                        bot.send_message(GROUP_CHAT_ID, report_card, parse_mode='HTML')
+
+            # 2. WEEKLY RESET & ANNOUNCEMENT (EVERY SUNDAY AT 23:59)
+            if now.weekday() == 6 and now.hour == 23 and now.minute == 59:
+                last_weekly_report = get_setting("last_weekly_report")
+                if last_weekly_report != today_stamp:
+                    set_setting("last_weekly_report", today_stamp)
+
+                    conn = get_db_connection()
+                    # Calculate Weekly Top Member
+                    top_user = conn.execute("""
+                        SELECT user_id, username, first_name, weekly_hearts 
+                        FROM users WHERE is_in_group = 1 
+                        ORDER BY weekly_hearts DESC LIMIT 1
+                    """).fetchone()
+
+                    # Calculate Winning Faction
+                    top_faction = conn.execute("""
+                        SELECT faction, SUM(weekly_hearts) as total_hearts 
+                        FROM users 
+                        WHERE faction IS NOT NULL AND faction != 'Unassigned 🌸' AND is_in_group = 1 
+                        GROUP BY faction ORDER BY total_hearts DESC LIMIT 1
+                    """).fetchone()
+
+                    # Fetch All Active Members for Tagged Breakdown
+                    all_active_members = conn.execute("""
+                        SELECT user_id, username, first_name, weekly_hearts, faction 
+                        FROM users WHERE is_in_group = 1 AND weekly_hearts > 0
+                        ORDER BY weekly_hearts DESC
+                    """).fetchall()
+
+                    weekly_msg = "🎆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 WEEKLY CHAMPIONS & HEARTS SUMMARY</b> 🎆\n\n"
+
+                    if top_user and top_user['weekly_hearts'] > 0:
+                        top_user_tag = get_user_mention(top_user['user_id'], top_user['username'], top_user['first_name'])
+                        weekly_msg += f"👑 <b>Weekly Top Member:</b> {top_user_tag} ({top_user['weekly_hearts']} 💖)\n"
+                        weekly_msg += "🎖️ <b>Awarded:</b> Weekly Streak Badge 🎆 (Valid 7 Days)\n\n"
+                        set_setting("weekly_top_user_id", top_user['user_id'])
+                    else:
+                        set_setting("weekly_top_user_id", 0)
+
+                    if top_faction and top_faction['total_hearts'] > 0:
+                        weekly_msg += f"⛩️ <b>Winning Faction of the Week:</b> {top_faction['faction']} ({top_faction['total_hearts']} 💖)\n"
+                        weekly_msg += "🎖️ <b>Awarded:</b> Faction Badge ⛩️ to all active members!\n\n"
+                        set_setting("weekly_top_faction_name", top_faction['faction'])
+                    else:
+                        set_setting("weekly_top_faction_name", "")
+
+                    weekly_msg += "📋 <b>MEMBER WEEKLY HEARTS BREAKDOWN:</b>\n"
+                    for row in all_active_members:
+                        tag = get_user_mention(row['user_id'], row['username'], row['first_name'])
+                        weekly_msg += f"• {tag} ({row['faction']}): <b>{row['weekly_hearts']} 💖</b>\n"
+
+                    weekly_msg += "\n🔄 <b>Weekly hearts have been reset to 0! Start chatting for the new week!</b> 💕"
+
+                    chunks = util.smart_split(weekly_msg, chars_per_string=3000)
+                    for chunk in chunks:
+                        bot.send_message(GROUP_CHAT_ID, chunk, parse_mode='HTML')
+
+                    # RESET WEEKLY HEARTS FOR ALL USERS
+                    conn.execute("UPDATE users SET weekly_hearts = 0")
+                    conn.commit()
+                    conn.close()
+
+            # 3. MONTHLY RESET (1ST DAY OF MONTH AT 00:00)
+            if now.day == 1 and now.hour == 0 and now.minute == 0:
+                last_monthly_report = get_setting("last_monthly_report")
+                month_stamp = now.strftime("%Y-%m")
+                if last_monthly_report != month_stamp:
+                    set_setting("last_monthly_report", month_stamp)
+
+                    conn = get_db_connection()
+                    top_month_user = conn.execute("""
+                        SELECT user_id, username, first_name, monthly_hearts 
+                        FROM users WHERE is_in_group = 1 
+                        ORDER BY monthly_hearts DESC LIMIT 1
+                    """).fetchone()
+
+                    if top_month_user and top_month_user['monthly_hearts'] > 0:
+                        tag = get_user_mention(top_month_user['user_id'], top_month_user['username'], top_month_user['first_name'])
+                        set_setting("monthly_top_user_id", top_month_user['user_id'])
+                        bot.send_message(GROUP_CHAT_ID, f"♨️ <b>MONTHLY CHAMPION ANNOUNCEMENT</b> ♨️\n\n🏆 <b>Top Active Member of the Month:</b> {tag} ({top_month_user['monthly_hearts']} 💖)\n🎖️ <b>Awarded:</b> Monthly Streak Badge ♨️ (Valid 30 Days)", parse_mode='HTML')
+                    else:
+                        set_setting("monthly_top_user_id", 0)
+
+                    conn.execute("UPDATE users SET monthly_hearts = 0")
+                    conn.commit()
+                    conn.close()
+
+        except Exception as cron_error:
+            logging.error(f"Error in automated cron engine: {cron_error}")
+
+cron_daemon = Thread(target=execute_automated_scheduler_cron)
+cron_daemon.daemon = True
+cron_daemon.start()
+
 # --- 👑 BACKGROUND INACTIVITY SCAN ENGINE ---
 def execute_inactivity_scan_cycle():
     while True:
@@ -952,7 +1122,7 @@ def execute_inactivity_scan_cycle():
             logging.info("Initiating routine scan for tracking user inactivity durations...")
 
             conn = get_db_connection()
-            active_profiles = conn.execute("SELECT user_id, username, first_name, last_msg_time FROM users").fetchall()
+            active_profiles = conn.execute("SELECT user_id, username, first_name, last_msg_time FROM users WHERE is_in_group = 1").fetchall()
             now_epoch = time.time()
 
             for profile in active_profiles:
@@ -967,7 +1137,7 @@ def execute_inactivity_scan_cycle():
 
                 if is_user_admin(GROUP_CHAT_ID, uid): continue
 
-                tag_mention = f"@{username_raw}" if username_raw else f'<a href="tg://user?id={uid}">{name_clean}</a>'
+                tag_mention = get_user_mention(uid, username_raw, first_name_raw)
 
                 if 5.0 <= days_elapsed < 6.0:
                     alert = f"🌸 🔔 <b>Reminder:</b> Hey {tag_mention}, hum sab aapko group me miss kar rahe hain! Aakar chat karo na! 💕"
@@ -985,7 +1155,7 @@ def execute_inactivity_scan_cycle():
 
                         bot.ban_chat_member(GROUP_CHAT_ID, uid)
                         bot.unban_chat_member(GROUP_CHAT_ID, uid)
-                        expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 days inactivity ki वजह se remove kar diya gaya."
+                        expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 days inactivity ki wajah se remove kar diya gaya."
                         bot.send_message(GROUP_CHAT_ID, expulsion_notice, parse_mode='HTML')
                         log_event(f"👢 <b>INACTIVITY AUTO-KICK</b>\n\n👤 <b>User:</b> {name_clean} (ID: <code>{uid}</code>)\n⏳ <b>Reason:</b> Inactive 7+ days.")
                     except Exception as ex:
