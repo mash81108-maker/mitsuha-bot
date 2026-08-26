@@ -190,13 +190,11 @@ def assign_balanced_faction(user_id, username=None, first_name="Angel", today_da
     conn = get_db_connection()
     user_row = conn.execute("SELECT faction FROM users WHERE user_id = ?", (user_id,)).fetchone()
     
-    # User pehle se faction me hai toh change nahi hoga
     if user_row and user_row['faction'] and user_row['faction'] != 'Unassigned 🌸':
         existing_faction = user_row['faction']
         conn.close()
         return existing_faction
     
-    # Har faction me active count check karo balance equal rakhne ke liye
     faction_counts = {k: 0 for k in FACTIONS.keys()}
     stats = conn.execute("""
         SELECT faction, COUNT(*) as cnt 
@@ -294,7 +292,6 @@ def handle_new_chat_members(message):
 
         faction_name = assign_balanced_faction(uid, username, name, today_date_str, now_timestamp_str)
 
-        # Welcome Message in GC
         welcome_gc = (
             f"🌸 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Welcome!</b> ✨\n\n"
             f"Konichiwa {get_user_mention(uid, username, name)}! ⛩️\n"
@@ -304,7 +301,6 @@ def handle_new_chat_members(message):
         )
         bot.send_message(message.chat.id, welcome_gc, parse_mode='HTML')
 
-        # Welcome Message in DM
         try:
             welcome_dm = (
                 f"🍥 <b>Konichiwa {name}!</b> ⛩️\n\n"
@@ -330,11 +326,9 @@ def handle_left_chat_member(message):
     conn.commit()
     conn.close()
 
-    # Goodbye Message in GC
     goodbye_gc = f"🥺 <b>Goodbye!</b> {name} ne group chor diya hai. Hum aapko miss karenge! 🌸"
     bot.send_message(message.chat.id, goodbye_gc, parse_mode='HTML')
 
-    # Goodbye Message in DM
     try:
         goodbye_dm = f"🌸 <b>Sayonara {name}!</b> 🥺\nAapne 𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 group leave kar diya hai. Hum aapko miss karenge! Jab chahe tab wapas join kar sakte hain. 💕"
         bot.send_message(uid, goodbye_dm, parse_mode='HTML')
@@ -982,7 +976,6 @@ def process_incoming_activities(message):
         today_date_str = datetime.now().strftime("%Y-%m-%d")
         now_timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Auto-assign balanced faction if unassigned
         assign_balanced_faction(user_id, username, first_name, today_date_str, now_timestamp_str)
 
         conn = get_db_connection()
@@ -1003,7 +996,6 @@ def process_incoming_activities(message):
             weekly_hearts = user_row["weekly_hearts"] or 0
             monthly_hearts = user_row["monthly_hearts"] or 0
             
-            # HAR 2 MESSAGES PAR 5 HEARTS EARN HOTE HAIN
             if current_counter >= 2:
                 current_hearts += 5
                 weekly_hearts += 5
@@ -1084,180 +1076,11 @@ def handle_admin_private_portal(message):
     except Exception as network_error:
         bot.reply_to(message, f"❌ Post forwarding failed: {network_error}")
 
-# --- 👑 AUTOMATED CRON ENGINE (DAILY 7:00 PM, WEEKLY & MONTHLY RESET) ---
-def execute_automated_scheduler_cron():
-    while True:
-        try:
-            time.sleep(30)
-            now = datetime.now()
-            today_stamp = now.strftime("%Y-%m-%d")
-
-            # 1. DAILY 7:00 PM TOP 10 ACTIVE MEMBERS MESSAGE (19:00 IST)
-            if now.hour == 19 and now.minute == 0:
-                last_daily_report = get_setting("last_daily_report")
-                if last_daily_report != today_stamp:
-                    set_setting("last_daily_report", today_stamp)
-                    
-                    conn = get_db_connection()
-                    top_10 = conn.execute("""
-                        SELECT m.user_id, u.username, u.first_name, COUNT(m.id) as daily_msgs
-                        FROM message_log m
-                        JOIN users u ON m.user_id = u.user_id
-                        WHERE m.timestamp LIKE ? AND u.is_in_group = 1
-                        GROUP BY m.user_id
-                        ORDER BY daily_msgs DESC LIMIT 10
-                    """, (f"{today_stamp}%",)).fetchall()
-                    conn.close()
-
-                    if top_10:
-                        report_card = f"🔥 <b>DAILY TOP 10 ACTIVE MEMBERS ({today_stamp})</b> 🔥\n\n"
-                        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-                        for idx, row in enumerate(top_10, 1):
-                            m = medals.get(idx, f"<b>#{idx}</b>")
-                            user_tag = get_user_mention(row['user_id'], row['username'], row['first_name'])
-                            report_card += f"{m} {user_tag} — <b>{row['daily_msgs']} messages</b>\n"
-                        
-                        report_card += "\nKeep chatting and bringing cozy vibes! 💕"
-                        bot.send_message(GROUP_CHAT_ID, report_card, parse_mode='HTML')
-
-            # 2. WEEKLY RESET & ANNOUNCEMENT (EVERY SUNDAY AT 23:59)
-            if now.weekday() == 6 and now.hour == 23 and now.minute == 59:
-                last_weekly_report = get_setting("last_weekly_report")
-                if last_weekly_report != today_stamp:
-                    set_setting("last_weekly_report", today_stamp)
-
-                    conn = get_db_connection()
-                    top_user = conn.execute("""
-                        SELECT user_id, username, first_name, weekly_hearts 
-                        FROM users WHERE is_in_group = 1 
-                        ORDER BY weekly_hearts DESC LIMIT 1
-                    """).fetchone()
-
-                    top_faction = conn.execute("""
-                        SELECT faction, SUM(weekly_hearts) as total_hearts 
-                        FROM users 
-                        WHERE faction IS NOT NULL AND faction != 'Unassigned 🌸' AND is_in_group = 1 
-                        GROUP BY faction ORDER BY total_hearts DESC LIMIT 1
-                    """).fetchone()
-
-                    all_active_members = conn.execute("""
-                        SELECT user_id, username, first_name, weekly_hearts, faction 
-                        FROM users WHERE is_in_group = 1 AND weekly_hearts > 0
-                        ORDER BY weekly_hearts DESC
-                    """).fetchall()
-
-                    weekly_msg = "🎆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 WEEKLY CHAMPIONS & HEARTS SUMMARY</b> 🎆\n\n"
-
-                    if top_user and top_user['weekly_hearts'] > 0:
-                        top_user_tag = get_user_mention(top_user['user_id'], top_user['username'], top_user['first_name'])
-                        weekly_msg += f"👑 <b>Weekly Top Member:</b> {top_user_tag} ({top_user['weekly_hearts']} 💖)\n"
-                        weekly_msg += "🎖️ <b>Awarded:</b> Weekly Streak Badge 🎆 (Valid 7 Days)\n\n"
-                        set_setting("weekly_top_user_id", top_user['user_id'])
-                    else:
-                        set_setting("weekly_top_user_id", 0)
-
-                    if top_faction and top_faction['total_hearts'] > 0:
-                        weekly_msg += f"⛩️ <b>Winning Faction of the Week:</b> {top_faction['faction']} ({top_faction['total_hearts']} 💖)\n"
-                        weekly_msg += "🎖️ <b>Awarded:</b> Faction Badge ⛩️ to all active members!\n\n"
-                        set_setting("weekly_top_faction_name", top_faction['faction'])
-                    else:
-                        set_setting("weekly_top_faction_name", "")
-
-                    weekly_msg += "📋 <b>MEMBER WEEKLY HEARTS BREAKDOWN:</b>\n"
-                    for row in all_active_members:
-                        tag = get_user_mention(row['user_id'], row['username'], row['first_name'])
-                        weekly_msg += f"• {tag} ({row['faction']}): <b>{row['weekly_hearts']} 💖</b>\n"
-
-                    weekly_msg += "\n🔄 <b>Weekly hearts have been reset to 0! Start chatting for the new week!</b> 💕"
-
-                    chunks = util.smart_split(weekly_msg, chars_per_string=3000)
-                    for chunk in chunks:
-                        bot.send_message(GROUP_CHAT_ID, chunk, parse_mode='HTML')
-
-                    conn.execute("UPDATE users SET weekly_hearts = 0")
-                    conn.commit()
-                    conn.close()
-
-            # 3. MONTHLY RESET (1ST DAY OF MONTH AT 00:00)
-            if now.day == 1 and now.hour == 0 and now.minute == 0:
-                last_monthly_report = get_setting("last_monthly_report")
-                month_stamp = now.strftime("%Y-%m")
-                if last_monthly_report != month_stamp:
-                    set_setting("last_monthly_report", month_stamp)
-
-                    conn = get_db_connection()
-                    top_month_user = conn.execute("""
-                        SELECT user_id, username, first_name, monthly_hearts 
-                        FROM users WHERE is_in_group = 1 
-                        ORDER BY monthly_hearts DESC LIMIT 1
-                    """).fetchone()
-
-                    if top_month_user and top_month_user['monthly_hearts'] > 0:
-                        tag = get_user_mention(top_month_user['user_id'], top_month_user['username'], top_month_user['first_name'])
-                        set_setting("monthly_top_user_id", top_month_user['user_id'])
-                        bot.send_message(GROUP_CHAT_ID, f"♨️ <b>MONTHLY CHAMPION ANNOUNCEMENT</b> ♨️\n\n🏆 <b>Top Active Member of the Month:</b> {tag} ({top_month_user['monthly_hearts']} 💖)\n🎖️ <b>Awarded:</b> Monthly Streak Badge ♨️ (Valid 30 Days)", parse_mode='HTML')
-                    else:
-                        set_setting("monthly_top_user_id", 0)
-
-                    conn.execute("UPDATE users SET monthly_hearts = 0")
-                    conn.commit()
-                    conn.close()
-
-        except Exception as cron_error:
-            logging.error(f"Error in automated cron engine: {cron_error}")
-
-cron_daemon = Thread(target=execute_automated_scheduler_cron)
-cron_daemon.daemon = True
-cron_daemon.start()
-
-# --- ⏰ 7-HOUR ONLINE REMINDER ENGINE (GC & DM) ---
-def execute_7hour_reminder_cron():
-    while True:
-        try:
-            # Har 7 ghante baad run hoga (7 * 3600 seconds)
-            time.sleep(25200)
-
-            reminder_text_gc = (
-                "⏰ <b>7-HOUR ONLINE REMINDER!</b> 🌸\n\n"
-                "Hey sweeties! ✨ 7 ghante ho gaye hain. Group me aao, active ho jao aur chat karo! "
-                "Apne hearts increase karo aur daily streak maintain rakho! 💕"
-            )
-            
-            if GROUP_CHAT_ID != 0:
-                try:
-                    bot.send_message(GROUP_CHAT_ID, reminder_text_gc, parse_mode='HTML')
-                except Exception as e:
-                    logging.error(f"7-Hour GC reminder send error: {e}")
-
-            # Active members ko DM reminder
-            conn = get_db_connection()
-            active_users = conn.execute("SELECT user_id, first_name FROM users WHERE is_in_group = 1").fetchall()
-            conn.close()
-
-            for u in active_users:
-                try:
-                    uid = u['user_id']
-                    u_name = escape_html(u['first_name'])
-                    dm_text = (
-                        f"🌸 <b>Konichiwa {u_name}!</b> ⏰\n\n"
-                        f"7 ghante ho gaye hain sweetie! Group me sab active hain, aap bhi online aao aur chat karo! 💕\n"
-                        f"✨ Group link: {GROUP_LINK}"
-                    )
-                    bot.send_message(uid, dm_text, parse_mode='HTML', disable_web_page_preview=True)
-                except Exception:
-                    pass
-        except Exception as e:
-            logging.error(f"Error in 7-hour reminder cron: {e}")
-
-reminder_daemon = Thread(target=execute_7hour_reminder_cron)
-reminder_daemon.daemon = True
-reminder_daemon.start()
-
-# --- 👑 BACKGROUND INACTIVITY SCAN ENGINE ---
+# --- 👑 BACKGROUND INACTIVITY SCAN ENGINE (WITH DIRECT DM ALERTS) ---
 def execute_inactivity_scan_cycle():
     while True:
         try:
-            time.sleep(86400)
+            time.sleep(86400) # Check daily (24 hrs)
             logging.info("Initiating routine scan for tracking user inactivity durations...")
 
             conn = get_db_connection()
@@ -1278,15 +1101,55 @@ def execute_inactivity_scan_cycle():
 
                 tag_mention = get_user_mention(uid, username_raw, first_name_raw)
 
+                # Day 5: Gentle DM Reminder + Group Alert
                 if 5.0 <= days_elapsed < 6.0:
-                    alert = f"🌸 🔔 <b>Reminder:</b> Hey {tag_mention}, hum sab aapko group me miss kar rahe hain! Aakar chat karo na! 💕"
-                    bot.send_message(GROUP_CHAT_ID, alert, parse_mode='HTML')
+                    dm_reminder = (
+                        f"🌸 <b>Konichiwa {name_clean}!</b> 🥺\n\n"
+                        f"Hum sab aapko group me bahut miss kar rahe hain! ✨\n"
+                        f"Aap 5 dinon se inactive hain. Aakar group me chat kijiye aur apni streak maintain rakhiye! 💕\n\n"
+                        f"🔗 <b>Group Join Link:</b> {GROUP_LINK}"
+                    )
+                    try:
+                        bot.send_message(uid, dm_reminder, parse_mode='HTML', disable_web_page_preview=True)
+                    except Exception as e:
+                        logging.warning(f"Could not send 5-day DM reminder to {uid}: {e}")
 
+                    alert_gc = f"🌸 🔔 <b>Reminder:</b> Hey {tag_mention}, hum sab aapko group me miss kar rahe hain! Aakar chat karo na! 💕"
+                    try:
+                        bot.send_message(GROUP_CHAT_ID, alert_gc, parse_mode='HTML')
+                    except Exception: pass
+
+                # Day 6: Final Warning DM + Group Warning
                 elif 6.0 <= days_elapsed < 7.0:
-                    alert = f"⚠️ <b>Warning:</b> {tag_mention}, aap 6 dinon se inactive ho. Kal tak active nahi hue toh auto-remove ho jaoge. 🥺"
-                    bot.send_message(GROUP_CHAT_ID, alert, parse_mode='HTML')
+                    dm_warning = (
+                        f"⚠️ <b>FINAL WARNING, {name_clean}!</b> 🥺\n\n"
+                        f"Aap 6 dinon se group me inactive hain.\n"
+                        f"Agar aap kal tak group me active nahi hue toh aapko auto-remove (kick) kar diya jayega! 😭\n\n"
+                        f"Jaldi se group me aao aur ek message drop karo! 💕\n"
+                        f"🔗 <b>Group Link:</b> {GROUP_LINK}"
+                    )
+                    try:
+                        bot.send_message(uid, dm_warning, parse_mode='HTML', disable_web_page_preview=True)
+                    except Exception as e:
+                        logging.warning(f"Could not send 6-day DM warning to {uid}: {e}")
 
+                    alert_gc = f"⚠️ <b>Warning:</b> {tag_mention}, aap 6 dinon se inactive ho. Kal tak active nahi hue toh auto-remove ho jaoge. 🥺"
+                    try:
+                        bot.send_message(GROUP_CHAT_ID, alert_gc, parse_mode='HTML')
+                    except Exception: pass
+
+                # Day 7: Kick Notice DM + Expulsion Logic
                 elif days_elapsed >= 7.0:
+                    dm_expulsion = (
+                        f"💔 <b>Sayonara {name_clean}!</b> 🥺\n\n"
+                        f"Aap 7 dino tak inactive rahe, isliye safety protocol ke tehat aapko group se remove kar diya gaya hai.\n"
+                        f"Jab bhi aap free ho, wapas join kar sakte hain! 💕\n\n"
+                        f"🔗 <b>Join Link:</b> {GROUP_LINK}"
+                    )
+                    try:
+                        bot.send_message(uid, dm_expulsion, parse_mode='HTML', disable_web_page_preview=True)
+                    except Exception: pass
+
                     try:
                         now_date = datetime.now().strftime("%Y-%m-%d %H:%M")
                         conn.execute("UPDATE users SET is_in_group = 0, left_date = ? WHERE user_id = ?", (now_date, uid))
@@ -1294,7 +1157,7 @@ def execute_inactivity_scan_cycle():
 
                         bot.ban_chat_member(GROUP_CHAT_ID, uid)
                         bot.unban_chat_member(GROUP_CHAT_ID, uid)
-                        expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 days inactivity ki wajah se remove kar diya gaya."
+                        expulsion_notice = f"🚪 <b>{name_clean}</b> (ID: <code>{uid}</code>) ko 7 days inactivity ki वजह se remove kar diya gaya."
                         bot.send_message(GROUP_CHAT_ID, expulsion_notice, parse_mode='HTML')
                         log_event(f"👢 <b>INACTIVITY AUTO-KICK</b>\n\n👤 <b>User:</b> {name_clean} (ID: <code>{uid}</code>)\n⏳ <b>Reason:</b> Inactive 7+ days.")
                     except Exception as ex:
@@ -1304,19 +1167,117 @@ def execute_inactivity_scan_cycle():
         except Exception as loop_error:
             logging.error(f"Error caught inside inactivity routine scheduler: {loop_error}")
 
-inactivity_daemon = Thread(target=execute_inactivity_scan_cycle)
-inactivity_daemon.daemon = True
-inactivity_daemon.start()
+# --- 👑 AUTOMATED CRON ENGINE (DAILY 7:00 PM, WEEKLY & MONTHLY RESET) ---
+def execute_automated_scheduler_cron():
+    while True:
+        try:
+            time.sleep(30)
+            now = datetime.now()
+            today_stamp = now.strftime("%Y-%m-%d")
 
-# --- 🌐 WORKER ROUTINE POLLING LAUNCHERS ---
-def execute_bot_polling():
-    logging.info("Starting up core asynchronous bot runtime polling thread...")
-    bot.infinity_polling()
+            # 1. DAILY 7:00 PM TOP 10 ACTIVE MEMBERS MESSAGE (19:00 IST)
+            if now.hour == 19 and now.minute == 0:
+                last_daily_report = get_setting("last_daily_report")
+                if last_daily_report != today_stamp:
+                    set_setting("last_daily_report", today_stamp)
+                    
+                    conn = get_db_connection()
+                    top_10 = conn.execute("SELECT user_id, first_name, weekly_hearts FROM users WHERE is_in_group = 1 ORDER BY weekly_hearts DESC LIMIT 10").fetchall()
+                    conn.close()
 
-polling_thread = Thread(target=execute_bot_polling)
-polling_thread.daemon = True
-polling_thread.start()
+                    if top_10:
+                        report_msg = "🌟 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Daily Top 10 Active Members</b> 👑\n\n"
+                        medal = {1: "🥇", 2: "🥈", 3: "🥉"}
+                        for idx, member in enumerate(top_10, 1):
+                            m = medal.get(idx, f"<b>#{idx}</b>")
+                            report_msg += f"{m} <b>{escape_html(member['first_name'])}</b> — <code>{member['weekly_hearts']}</code> 💖\n"
+                        
+                        report_msg += "\nKeep chatting to climb the leaderboard! 💕"
+                        try:
+                            bot.send_message(GROUP_CHAT_ID, report_msg, parse_mode='HTML')
+                        except Exception as e:
+                            logging.error(f"Failed to post daily top 10: {e}")
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+            # 2. WEEKLY RESET (SUNDAY 11:59 PM)
+            if now.weekday() == 6 and now.hour == 23 and now.minute == 59:
+                last_weekly_reset = get_setting("last_weekly_reset")
+                if last_weekly_reset != today_stamp:
+                    set_setting("last_weekly_reset", today_stamp)
+
+                    conn = get_db_connection()
+                    top_user = conn.execute("SELECT user_id, first_name FROM users WHERE is_in_group = 1 ORDER BY weekly_hearts DESC LIMIT 1").fetchone()
+                    top_faction = conn.execute("""
+                        SELECT faction, SUM(weekly_hearts) as tot 
+                        FROM users WHERE is_in_group = 1 AND faction IS NOT NULL AND faction != 'Unassigned 🌸' 
+                        GROUP BY faction ORDER BY tot DESC LIMIT 1
+                    """).fetchone()
+
+                    if top_user:
+                        set_setting("weekly_top_user_id", top_user["user_id"])
+                        grant_achievement(top_user["user_id"], "top_1", GROUP_CHAT_ID, top_user["first_name"])
+                    if top_faction:
+                        set_setting("weekly_top_faction_name", top_faction["faction"])
+
+                    conn.execute("UPDATE users SET weekly_hearts = 0")
+                    conn.commit()
+                    conn.close()
+
+                    reset_announce = (
+                        "🎆 <b>𝖪𝖺𝗐𝖺𝗂𝗂 𝖢𝗅𝗎𝖻 Weekly Reset Completed!</b> 🏆\n\n"
+                        "Saare Weekly Hearts reset ho gaye hain! "
+                        "Naye week ki leaderboard race shuru ho chuki hai! ✨"
+                    )
+                    try:
+                        bot.send_message(GROUP_CHAT_ID, reset_announce, parse_mode='HTML')
+                    except Exception as e:
+                        logging.error(f"Failed to announce weekly reset: {e}")
+
+            # 3. MONTHLY RESET (LAST DAY OF MONTH 11:59 PM)
+            next_month = now.replace(day=28) + timedelta(days=4)
+            last_day_of_month = next_month - timedelta(days=next_month.day)
+
+            if now.day == last_day_of_month.day and now.hour == 23 and now.minute == 59:
+                last_monthly_reset = get_setting("last_monthly_reset")
+                if last_monthly_reset != today_stamp:
+                    set_setting("last_monthly_reset", today_stamp)
+
+                    conn = get_db_connection()
+                    top_user_m = conn.execute("SELECT user_id FROM users WHERE is_in_group = 1 ORDER BY monthly_hearts DESC LIMIT 1").fetchone()
+                    if top_user_m:
+                        set_setting("monthly_top_user_id", top_user_m["user_id"])
+
+                    conn.execute("UPDATE users SET monthly_hearts = 0")
+                    conn.commit()
+                    conn.close()
+
+        except Exception as e:
+            logging.error(f"Cron scheduler error: {e}")
+
+# --- 🚀 BOT INITIALIZATION & SERVER THREADS ---
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    # Start Web Server Thread
+    flask_thread = Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Start Inactivity Scanner Thread
+    inactivity_thread = Thread(target=execute_inactivity_scan_cycle)
+    inactivity_thread.daemon = True
+    inactivity_thread.start()
+
+    # Start Cron Scheduler Thread
+    cron_thread = Thread(target=execute_automated_scheduler_cron)
+    cron_thread.daemon = True
+    cron_thread.start()
+
+    logging.info("Mitsuha Bot starting polling loop...")
+    while True:
+        try:
+            bot.polling(none_stop=True, interval=1, timeout=60)
+        except Exception as err:
+            logging.error(f"Bot polling exception encountered: {err}")
+            time.sleep(5)
